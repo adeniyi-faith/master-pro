@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { getConfigDir } = require('./storage');
+const { getSetupFilePath } = require('./storage');
 
 // Limits keep the AI's context from growing too large
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
@@ -12,7 +12,7 @@ const TEXT_EXTENSIONS = ['.txt', '.md', '.markdown', '.csv', '.json', '.log', '.
 const SUPPORTED_EXTENSIONS = [...TEXT_EXTENSIONS, '.pdf', '.docx'];
 
 function getDocumentsPath() {
-    return path.join(getConfigDir(), 'documents.json');
+    return getSetupFilePath('documents');
 }
 
 function readAll() {

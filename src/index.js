@@ -190,6 +190,13 @@ function setupStorageIpcHandlers() {
         }
     });
 
+    // ============ SAVED SESSIONS ============
+    ipcMain.handle('setups:list', async () => storage.listSetups());
+    ipcMain.handle('setups:create', async (event, name, copyFromId) => storage.createSetup(name, copyFromId));
+    ipcMain.handle('setups:rename', async (event, id, name) => storage.renameSetup(id, name));
+    ipcMain.handle('setups:activate', async (event, id) => storage.setActiveSetup(id));
+    ipcMain.handle('setups:delete', async (event, id) => storage.deleteSetup(id));
+
     // ============ HISTORY ============
     ipcMain.handle('storage:get-all-sessions', async () => {
         try {
