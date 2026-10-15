@@ -226,8 +226,42 @@ function hasGroqKey() {
     return key && key.trim() != '';
 }
 
+// The Gemini text model chosen in Settings to write answers ('' means not used)
+function getGeminiAnswerModel() {
+    const model = (getConfig().geminiAnswerModel || '').trim();
+    return model && getApiKey() ? model : '';
+}
+
+// True when answers come from a text model (Gemini or Groq) instead of the Live model's own voice answers
+function usesTextAnswers() {
+    return Boolean(getGeminiAnswerModel()) || hasGroqKey();
+}
+
+// Sends the question to the chosen text model. Gemini wins over Groq when both are set.
+function sendQuestionToAnswerModel(transcription) {
+    if (getGeminiAnswerModel()) {
+        sendToGeminiText(transcription);
+    } else if (hasGroqKey()) {
+        sendToGroq(transcription);
+    }
+}
+
+// Starts the Gemini text answer once the speaker has finished the question. The Live model starts
+// replying only after it decides the speaker stopped, so its first reply signal marks the end.
+function sendFinalTranscriptionToGemini() {
+    if (!getGeminiAnswerModel() || groqRequestStartedForTurn) {
+        return;
+    }
+    const transcription = currentTranscription.trim();
+    if (transcription === '') {
+        return;
+    }
+    groqRequestStartedForTurn = true;
+    sendToGeminiText(transcription);
+}
+
 function sendFinalTranscriptionToGroq() {
-    if (!hasGroqKey() || groqRequestStartedForTurn) {
+    if (getGeminiAnswerModel() || !hasGroqKey() || groqRequestStartedForTurn) {
         return;
     }
 
@@ -560,7 +594,7 @@ async function sendImageToGroq(base64Data, prompt) {
     }
 }
 
-async function sendToGemma(transcription) {
+async function sendToGeminiText(transcription) {
     const apiKey = getApiKey();
     if (!apiKey) {
         console.log('No Gemini API key configured');
@@ -568,11 +602,12 @@ async function sendToGemma(transcription) {
     }
 
     if (!transcription || transcription.trim() === '') {
-        console.log('Empty transcription, skipping Gemma');
+        console.log('Empty transcription, skipping Gemini text answer');
         return;
     }
 
-    console.log('Sending to Gemma:', transcription.substring(0, 100) + '...');
+    const answerModel = getGeminiAnswerModel() || 'gemini-3.5-flash-lite';
+    console.log(`Sending to ${answerModel}:`, transcription.substring(0, 100) + '...');
 
     groqConversationHistory.push({
         role: 'user',
@@ -590,15 +625,11 @@ async function sendToGemma(transcription) {
         }));
 
         const systemPrompt = currentSystemPrompt || 'You are a helpful assistant.';
-        const messagesWithSystem = [
-            { role: 'user', parts: [{ text: systemPrompt }] },
-            { role: 'model', parts: [{ text: 'Understood. I will follow these instructions.' }] },
-            ...messages,
-        ];
 
         const response = await ai.models.generateContentStream({
-            model: 'gemma-4-26b-a4b-it',
-            contents: messagesWithSystem,
+            model: answerModel,
+            contents: messages,
+            config: { systemInstruction: systemPrompt },
         });
 
         let fullText = '';
@@ -613,13 +644,6 @@ async function sendToGemma(transcription) {
             }
         }
 
-        const systemPromptChars = (currentSystemPrompt || 'You are a helpful assistant.').length;
-        const historyChars = trimmedHistory.reduce((sum, msg) => sum + (msg.content || '').length, 0);
-        const inputChars = systemPromptChars + historyChars;
-        const outputChars = fullText.length;
-
-        incrementCharUsage('gemini', 'gemma-4-26b-a4b-it', inputChars + outputChars);
-
         if (fullText.trim()) {
             groqConversationHistory.push({
                 role: 'assistant',
@@ -633,11 +657,11 @@ async function sendToGemma(transcription) {
             saveConversationTurn(transcription, fullText);
         }
 
-        console.log('Gemma response completed');
+        console.log(`${answerModel} response completed`);
         sendToRenderer('update-status', 'Listening...');
     } catch (error) {
-        console.error('Error calling Gemma API:', error);
-        sendToRenderer('update-status', 'Gemma error: ' + error.message);
+        console.error('Error calling Gemini text answer model:', error);
+        sendToRenderer('update-status', 'Gemini error: ' + error.message);
     }
 }
 
@@ -702,7 +726,17 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                         sendFinalTranscriptionToGroq();
                     }
 
-                    if (!hasGroqKey() && message.serverContent?.outputTranscription?.text) {
+                    // The Live model replying (or finishing) means the question has ended
+                    if (
+                        message.serverContent?.modelTurn ||
+                        message.serverContent?.outputTranscription ||
+                        message.serverContent?.generationComplete ||
+                        message.serverContent?.turnComplete
+                    ) {
+                        sendFinalTranscriptionToGemini();
+                    }
+
+                    if (!usesTextAnswers() && message.serverContent?.outputTranscription?.text) {
                         const isFirstChunk = messageBuffer === '';
                         messageBuffer += message.serverContent.outputTranscription.text;
                         sendToRenderer(isFirstChunk ? 'new-response' : 'update-response', messageBuffer);
@@ -710,7 +744,7 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
 
                     if (message.serverContent?.generationComplete) {
                         if (currentTranscription.trim() !== '') {
-                            if (!hasGroqKey() && messageBuffer.trim() !== '') {
+                            if (!usesTextAnswers() && messageBuffer.trim() !== '') {
                                 saveConversationTurn(currentTranscription, messageBuffer);
                             }
                             currentTranscription = '';
@@ -1301,9 +1335,9 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
         try {
             console.log('Sending text message:', text);
 
-            if (hasGroqKey()) {
+            if (usesTextAnswers()) {
                 groqRequestStartedForTurn = true;
-                sendToGroq(text.trim());
+                sendQuestionToAnswerModel(text.trim());
             }
 
             await geminiSessionRef.current.sendRealtimeInput({ text: text.trim() });

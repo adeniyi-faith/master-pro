@@ -20,4 +20,11 @@ const SCREENSHOT_MODELS = [
     { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash (preview)' },
 ];
 
-module.exports = { DEFAULT_LIVE_MODEL, DEFAULT_SCREENSHOT_MODEL, LIVE_MODELS, SCREENSHOT_MODELS };
+// Models that can write the answer to a spoken question. '' keeps the Live model's own answers.
+const ANSWER_MODELS = [
+    { id: '', label: "Live model's own answers (default)" },
+    { id: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite (fast, recommended)' },
+    ...SCREENSHOT_MODELS.filter(model => model.id !== 'gemini-3.5-flash-lite'),
+];
+
+module.exports = { DEFAULT_LIVE_MODEL, DEFAULT_SCREENSHOT_MODEL, LIVE_MODELS, SCREENSHOT_MODELS, ANSWER_MODELS };
