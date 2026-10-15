@@ -2,10 +2,11 @@ if (require('electron-squirrel-startup')) {
     process.exit(0);
 }
 
-const { app, BrowserWindow, shell, ipcMain } = require('electron');
+const { app, BrowserWindow, shell, ipcMain, dialog } = require('electron');
 const { createWindow, updateGlobalShortcuts } = require('./utils/window');
 const { setupGeminiIpcHandlers, stopMacOSAudioCapture, sendToRenderer } = require('./utils/gemini');
 const storage = require('./storage');
+const documents = require('./documents');
 
 const geminiSessionRef = { current: null };
 let mainWindow = null;
@@ -284,6 +285,31 @@ function setupGeneralIpcHandlers() {
             return { success: false, error: error.message };
         }
     });
+
+    // ============ SESSION DOCUMENTS ============
+    ipcMain.handle('documents:list', async () => documents.listDocuments());
+
+    ipcMain.handle('documents:pick', async () => {
+        const result = await dialog.showOpenDialog(mainWindow, {
+            title: 'Add documents',
+            properties: ['openFile', 'multiSelections'],
+            filters: [{ name: 'Documents', extensions: documents.SUPPORTED_EXTENSIONS.map(ext => ext.slice(1)) }],
+        });
+        if (result.canceled) return [];
+        const results = [];
+        for (const filePath of result.filePaths) results.push(await documents.addDocument(filePath));
+        return results;
+    });
+
+    ipcMain.handle('documents:add-paths', async (event, filePaths) => {
+        const results = [];
+        for (const filePath of Array.isArray(filePaths) ? filePaths : []) results.push(await documents.addDocument(filePath));
+        return results;
+    });
+
+    ipcMain.handle('documents:remove', async (event, id) => documents.removeDocument(id));
+
+    ipcMain.handle('documents:get-context', async () => documents.getDocumentsContext());
 
     ipcMain.on('update-keybinds', (event, newKeybinds) => {
         if (mainWindow) {

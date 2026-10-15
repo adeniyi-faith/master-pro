@@ -22,6 +22,11 @@ const DEFAULT_CREDENTIALS = {
 
 const DEFAULT_PREFERENCES = {
     customPrompt: '',
+    company: '',
+    jobDescription: '',
+    answerTone: 'default',
+    answerFormat: 'default',
+    useStarMethod: false,
     providerMode: 'byok',
     selectedProfile: 'interview',
     selectedLanguage: 'en-US',
