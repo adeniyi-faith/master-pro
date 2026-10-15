@@ -107,6 +107,7 @@ const REWORK_INSTRUCTIONS = {
     shorter: 'Rewrite the answer so it is much shorter: the key point in one or two sentences.',
     simpler: 'Rewrite the answer in plainer, simpler words that anyone could follow, without losing the key point.',
     example: 'Rewrite the answer and include one short, concrete example that supports the main point.',
+    search: 'Search the web with Google for current, accurate information about this question, then give an improved answer based on what you find. Keep the same style and length. Do not mention that you searched.',
 };
 const REWORK_MAX_CHARS = 8000;
 
@@ -132,7 +133,7 @@ async function reworkAnswer({ question, answer, mode, requestId }) {
             const stream = await ai.models.generateContentStream({
                 model: getGeminiAnswerModel() || 'gemini-3.5-flash-lite',
                 contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                config: { systemInstruction: systemPrompt },
+                config: { systemInstruction: systemPrompt, ...(mode === 'search' ? { tools: [{ googleSearch: {} }] } : {}) },
             });
             for await (const chunk of stream) {
                 if (chunk.text) {
@@ -140,6 +141,8 @@ async function reworkAnswer({ question, answer, mode, requestId }) {
                     send({ text: fullText, done: false });
                 }
             }
+        } else if (mode === 'search') {
+            throw new Error('Search needs a Gemini key');
         } else if (hasGroqKey()) {
             const config = getConfig();
             const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
