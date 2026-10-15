@@ -8,9 +8,23 @@ const { setupGeminiIpcHandlers, stopMacOSAudioCapture, sendToRenderer } = requir
 const storage = require('./storage');
 const documents = require('./documents');
 const answerBank = require('./answerBank');
+const errorLog = require('./utils/errorLog');
 
 const geminiSessionRef = { current: null };
 let mainWindow = null;
+
+// The in-app error log: lists what went wrong (from this process and from the screen) so it can be read or copied
+function setupErrorLogIpcHandlers() {
+    ipcMain.handle('error-log:get', () => errorLog.getEntries());
+    ipcMain.handle('error-log:clear', () => {
+        errorLog.clearEntries();
+        return true;
+    });
+    ipcMain.on('error-log:add', (event, source, message, detail) => {
+        // Entries from the screen are recorded directly, without going through console.error again
+        errorLog.addEntry(String(source || 'screen'), [String(message || '')], String(detail || ''));
+    });
+}
 
 function createMainWindow() {
     mainWindow = createWindow(sendToRenderer, geminiSessionRef);
@@ -20,6 +34,8 @@ function createMainWindow() {
 app.whenReady().then(async () => {
     // Initialize storage (checks version, resets if needed)
     storage.initializeStorage();
+    errorLog.installErrorLogging();
+    setupErrorLogIpcHandlers();
 
     // Trigger screen recording permission prompt on macOS if not already granted
     if (process.platform === 'darwin') {

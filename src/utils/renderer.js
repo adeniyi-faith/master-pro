@@ -3,6 +3,27 @@ const { ipcRenderer } = require('electron');
 const { buildSessionContext: buildSessionPrompt } = require('./utils/sessionPrompt');
 const { setUpWindowMove } = require('./utils/windowMove');
 
+// Send problems on the screen side to the Error log screen too
+(function forwardScreenErrors() {
+    const report = (message, detail) => {
+        try {
+            ipcRenderer.send('error-log:add', 'screen', String(message).slice(0, 1000), String(detail || '').slice(0, 3000));
+        } catch {
+            // never let logging cause a new error
+        }
+    };
+    const originalError = console.error.bind(console);
+    console.error = (...args) => {
+        originalError(...args);
+        report(
+            args.map(a => (a instanceof Error ? `${a.name}: ${a.message}` : typeof a === 'string' ? a : JSON.stringify(a))).join(' '),
+            args.find(a => a instanceof Error)?.stack
+        );
+    };
+    window.addEventListener('error', e => report(e.message, e.error?.stack));
+    window.addEventListener('unhandledrejection', e => report(e.reason?.message || e.reason, e.reason?.stack));
+})();
+
 let mediaStream = null;
 let screenshotInterval = null;
 let audioContext = null;
