@@ -1,6 +1,8 @@
 import { html, css, LitElement } from '../../assets/lit-core-2.7.4.min.js';
 import { unifiedPageStyles } from './sharedPageStyles.js';
 
+const questionTypes = () => window.require('./utils/questionTypes');
+
 export class AICustomizeView extends LitElement {
     static styles = [
         unifiedPageStyles,
@@ -36,6 +38,35 @@ export class AICustomizeView extends LitElement {
             .doc-button.small {
                 padding: 4px 10px;
                 font-size: var(--font-size-xs);
+            }
+            .type-card {
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+                background: var(--bg-elevated);
+                border: 1px solid var(--border);
+                border-radius: var(--radius-sm);
+                padding: 10px 12px;
+            }
+            .type-head {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: var(--space-md);
+            }
+            .type-name {
+                color: var(--text-primary);
+                font-size: var(--font-size-sm);
+                font-weight: var(--font-weight-semibold);
+            }
+            .type-hint {
+                color: var(--text-muted);
+                font-size: var(--font-size-xs);
+                margin-left: 8px;
+                font-weight: normal;
+            }
+            .type-card textarea.control {
+                min-height: 90px;
             }
             .drop-zone {
                 border: 1px dashed var(--border-strong);
@@ -90,6 +121,8 @@ export class AICustomizeView extends LitElement {
         onProfileChange: { type: Function },
         _context: { state: true },
         _prefs: { state: true },
+        _autoType: { state: true },
+        _typeEdits: { state: true },
         _documents: { state: true },
         _message: { state: true },
         _dragOver: { state: true },
@@ -101,6 +134,8 @@ export class AICustomizeView extends LitElement {
         this.onProfileChange = () => {};
         this._context = '';
         this._prefs = { company: '', jobDescription: '', answerTone: 'default', answerFormat: 'default', useStarMethod: false };
+        this._autoType = true;
+        this._typeEdits = {};
         this._documents = [];
         this._message = '';
         this._dragOver = false;
@@ -112,6 +147,8 @@ export class AICustomizeView extends LitElement {
         try {
             const prefs = await cheatingDaddy.storage.getPreferences();
             this._context = prefs.customPrompt || '';
+            this._autoType = prefs.autoQuestionType !== false;
+            this._typeEdits = prefs.questionTypePrompts || {};
             this._prefs = {
                 company: prefs.company || '',
                 jobDescription: prefs.jobDescription || '',
@@ -176,6 +213,29 @@ export class AICustomizeView extends LitElement {
     async _savePref(key, val) {
         this._prefs = { ...this._prefs, [key]: val };
         await cheatingDaddy.storage.updatePreference(key, val);
+    }
+
+    async _saveAutoType(on) {
+        this._autoType = on;
+        await cheatingDaddy.storage.updatePreference('autoQuestionType', on);
+    }
+
+    // Saves an edit for one question type. Text that matches the default is not stored.
+    async _saveTypePrompt(type, text) {
+        const edits = { ...this._typeEdits };
+        if (text.trim() === '' || text.trim() === type.prompt) delete edits[type.id];
+        else edits[type.id] = text;
+        this._typeEdits = edits;
+        await cheatingDaddy.storage.updatePreference('questionTypePrompts', edits);
+    }
+
+    async _resetTypePrompt(type) {
+        await this._saveTypePrompt(type, '');
+    }
+
+    async _resetAllTypePrompts() {
+        this._typeEdits = {};
+        await cheatingDaddy.storage.updatePreference('questionTypePrompts', {});
     }
 
     async _saveContext(val) {
@@ -336,6 +396,47 @@ export class AICustomizeView extends LitElement {
                                     @change=${e => this._savePref('useStarMethod', e.target.checked)}
                                 />
                             </label>
+                        </div>
+                    </section>
+
+                    <section class="surface">
+                        <div class="surface-title">Question Types</div>
+                        <div class="surface-subtitle">
+                            The AI works out what kind of question was asked and follows the matching guide below. Edit any guide to change how it answers.
+                        </div>
+                        <div class="form-grid">
+                            <label class="form-group" style="cursor: pointer;">
+                                <span>
+                                    <span class="form-label" style="cursor: pointer;">Detect the question type automatically</span>
+                                    <div class="form-help">Turn this off to use only your own instructions.</div>
+                                </span>
+                                <input type="checkbox" .checked=${this._autoType} @change=${e => this._saveAutoType(e.target.checked)} />
+                            </label>
+                            ${this._autoType
+                                ? html`
+                                      ${questionTypes().DEFAULT_QUESTION_TYPES.map(type => {
+                                          const edited = typeof this._typeEdits[type.id] === 'string' && this._typeEdits[type.id].trim() !== '';
+                                          return html`
+                                              <div class="type-card">
+                                                  <div class="type-head">
+                                                      <span class="type-name">${type.label}<span class="type-hint">${type.hint}${edited ? ' · edited' : ''}</span></span>
+                                                      ${edited
+                                                          ? html`<button class="doc-button small" @click=${() => this._resetTypePrompt(type)}>Reset</button>`
+                                                          : ''}
+                                                  </div>
+                                                  <textarea
+                                                      class="control"
+                                                      .value=${questionTypes().getTypePrompt(type, this._typeEdits)}
+                                                      @change=${e => this._saveTypePrompt(type, e.target.value)}
+                                                  ></textarea>
+                                              </div>
+                                          `;
+                                      })}
+                                      <div class="doc-actions">
+                                          <button class="doc-button" @click=${() => this._resetAllTypePrompts()}>Reset all guides to default</button>
+                                      </div>
+                                  `
+                                : ''}
                         </div>
                     </section>
                 </div>
