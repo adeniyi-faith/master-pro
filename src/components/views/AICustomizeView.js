@@ -89,6 +89,7 @@ export class AICustomizeView extends LitElement {
         selectedProfile: { type: String },
         onProfileChange: { type: Function },
         _context: { state: true },
+        _prefs: { state: true },
         _documents: { state: true },
         _message: { state: true },
         _dragOver: { state: true },
@@ -99,6 +100,7 @@ export class AICustomizeView extends LitElement {
         this.selectedProfile = 'interview';
         this.onProfileChange = () => {};
         this._context = '';
+        this._prefs = { company: '', jobDescription: '', answerTone: 'default', answerFormat: 'default', useStarMethod: false };
         this._documents = [];
         this._message = '';
         this._dragOver = false;
@@ -110,6 +112,13 @@ export class AICustomizeView extends LitElement {
         try {
             const prefs = await cheatingDaddy.storage.getPreferences();
             this._context = prefs.customPrompt || '';
+            this._prefs = {
+                company: prefs.company || '',
+                jobDescription: prefs.jobDescription || '',
+                answerTone: prefs.answerTone || 'default',
+                answerFormat: prefs.answerFormat || 'default',
+                useStarMethod: prefs.useStarMethod === true,
+            };
             this.requestUpdate();
         } catch (error) {
             console.error('Error loading AI customize storage:', error);
@@ -164,6 +173,11 @@ export class AICustomizeView extends LitElement {
         this.onProfileChange(e.target.value);
     }
 
+    async _savePref(key, val) {
+        this._prefs = { ...this._prefs, [key]: val };
+        await cheatingDaddy.storage.updatePreference(key, val);
+    }
+
     async _saveContext(val) {
         this._context = val;
         await cheatingDaddy.storage.updatePreference('customPrompt', val);
@@ -195,7 +209,8 @@ export class AICustomizeView extends LitElement {
             <div class="unified-page">
                 <div class="unified-wrap">
                     <div>
-                        <div class="page-title">AI Context</div>
+                        <div class="page-title">Session Setup</div>
+                        <div class="page-subtitle">Tell the AI about the call so its answers fit. Saved automatically and used the next time you start a session.</div>
                     </div>
 
                     <section class="surface">
@@ -215,6 +230,33 @@ export class AICustomizeView extends LitElement {
                                     @input=${e => this._saveContext(e.target.value)}
                                 ></textarea>
                                 <div class="form-help">Sent as context at session start. Keep it short.</div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="surface">
+                        <div class="surface-title">Details</div>
+                        <div class="surface-subtitle">Optional. The more the AI knows, the better it can tailor answers.</div>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label class="form-label">Company</label>
+                                <input
+                                    class="control"
+                                    style="width: 320px; max-width: 100%;"
+                                    type="text"
+                                    placeholder="Enter company name"
+                                    .value=${this._prefs.company}
+                                    @input=${e => this._savePref('company', e.target.value)}
+                                />
+                            </div>
+                            <div class="form-group vertical">
+                                <label class="form-label">Job Description</label>
+                                <textarea
+                                    class="control"
+                                    placeholder="Paste the job description here"
+                                    .value=${this._prefs.jobDescription}
+                                    @input=${e => this._savePref('jobDescription', e.target.value)}
+                                ></textarea>
                             </div>
                         </div>
                     </section>
@@ -258,6 +300,42 @@ export class AICustomizeView extends LitElement {
                                       )}
                             </div>
                             <div class="form-help">Files stay on this computer. Their text is sent to your AI provider (Gemini or Groq) during a session. Very long files are trimmed.</div>
+                        </div>
+                    </section>
+
+                    <section class="surface">
+                        <div class="surface-title">Answer Preferences</div>
+                        <div class="surface-subtitle">How the AI should word and lay out its answers.</div>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label class="form-label">Tone</label>
+                                <select class="control" .value=${this._prefs.answerTone} @change=${e => this._savePref('answerTone', e.target.value)}>
+                                    <option value="default">Default</option>
+                                    <option value="simple">Simple</option>
+                                    <option value="formal">Formal</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Format</label>
+                                <select class="control" .value=${this._prefs.answerFormat} @change=${e => this._savePref('answerFormat', e.target.value)}>
+                                    <option value="default">Default</option>
+                                    <option value="full_script">Full script</option>
+                                    <option value="script_bullets">Script + bullets</option>
+                                    <option value="bullets">Bullet points</option>
+                                </select>
+                            </div>
+                            <div class="form-help">Simple uses plain words with no jargon. Formal uses precise, professional wording. Full script reads word for word; Script + bullets gives an opening line then bullets; Bullet points are short notes to say in your own words.</div>
+                            <label class="form-group" style="cursor: pointer;">
+                                <span>
+                                    <span class="form-label" style="cursor: pointer;">Use the STAR method</span>
+                                    <div class="form-help">Situation, Task, Action, Result structure for questions about past experience.</div>
+                                </span>
+                                <input
+                                    type="checkbox"
+                                    .checked=${this._prefs.useStarMethod}
+                                    @change=${e => this._savePref('useStarMethod', e.target.checked)}
+                                />
+                            </label>
                         </div>
                     </section>
                 </div>
