@@ -3,6 +3,7 @@ const { BrowserWindow, ipcMain } = require('electron');
 const { spawn } = require('child_process');
 const { saveDebugAudio } = require('../audioUtils');
 const { getSystemPrompt } = require('./prompts');
+const { recordUsage } = require('./usageTracker');
 const { getSession, saveSession, getAvailableModel, incrementLimitCount, getApiKey, getGroqApiKey, incrementCharUsage, getConfig, getPreferences } = require('../storage');
 const { connectCloud, sendCloudAudio, sendCloudText, sendCloudImage, closeCloud, isCloudActive, setOnTurnComplete } = require('./cloud');
 const { startTransportLog, logTransportEvent, closeTransportLog } = require('./transportLogger');
@@ -30,6 +31,13 @@ let currentProfile = null;
 let currentCustomPrompt = null;
 let isInitializingSession = false;
 let currentSystemPrompt = null;
+
+// The newest token count the Live session reported during the current turn, saved to the usage record when the turn ends
+let liveTurnUsage = null;
+function flushLiveUsage() {
+    if (liveTurnUsage) recordUsage('live', getConfig().geminiLiveModel, liveTurnUsage);
+    liveTurnUsage = null;
+}
 
 function formatSpeakerResults(results) {
     let text = '';
@@ -116,18 +124,21 @@ function friendlyErrorMessage(error) {
 
 // Starts a streamed Gemini answer and passes each growing text to onText(text, isFirst). If the connection drops before
 // anything has arrived, it quietly tries again (up to 3 tries in total). Returns the full text.
-async function streamGeminiWithRetry(ai, params, onText) {
+async function streamGeminiWithRetry(ai, params, onText, usageKind) {
     const maxTries = 3;
     for (let attempt = 1; ; attempt++) {
         let fullText = '';
+        let usage = null;
         try {
             const stream = await ai.models.generateContentStream(params);
             for await (const chunk of stream) {
+                if (chunk.usageMetadata) usage = chunk.usageMetadata;
                 if (chunk.text) {
                     fullText += chunk.text;
                     onText(fullText, fullText === chunk.text);
                 }
             }
+            if (usageKind) recordUsage(usageKind, params.model, usage);
             return fullText;
         } catch (error) {
             const canRetry = attempt < maxTries && fullText === '' && isNetworkError(error);
@@ -175,7 +186,8 @@ async function reworkAnswer({ question, answer, mode, requestId }) {
                     contents: [{ role: 'user', parts: [{ text: prompt }] }],
                     config: { systemInstruction: systemPrompt, ...(mode === 'search' ? { tools: [{ googleSearch: {} }] } : {}) },
                 },
-                text => send({ text, done: false })
+                text => send({ text, done: false }),
+                'rewrite'
             );
         } else if (mode === 'search') {
             throw new Error('Search needs a Gemini key');
@@ -824,7 +836,8 @@ async function sendToGeminiText(transcription) {
             text => {
                 sendToRenderer(isFirst ? 'new-response' : 'update-response', text);
                 isFirst = false;
-            }
+            },
+            'answer'
         );
 
         if (fullText.trim()) {
@@ -893,6 +906,7 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                 },
                 onmessage: function (message) {
                     console.log('----------------', message);
+                    if (message.usageMetadata) liveTurnUsage = message.usageMetadata;
                     logTransportEvent('gemini.live.message', message);
 
                     // Handle input transcription (what was spoken)
@@ -946,6 +960,7 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                     }
 
                     if (message.serverContent?.turnComplete) {
+                        flushLiveUsage();
                         messageBuffer = '';
                         if (!usesTextAnswers()) {
                             clearQuestionEndTimer();
@@ -964,6 +979,7 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                 },
                 onclose: function (e) {
                     console.log('Session closed:', e.reason);
+                    flushLiveUsage();
                     logTransportEvent('gemini.live.closed', {
                         reason: e.reason,
                     });
@@ -1275,6 +1291,7 @@ ${transcript}`;
     try {
         const ai = new GoogleGenAI({ apiKey });
         const response = await ai.models.generateContent({ model, contents: prompt });
+        recordUsage('notes', model, response.usageMetadata);
         const text = (response.text || '').trim();
         if (!text) {
             return { success: false, error: 'The AI returned no notes. Try again.' };
@@ -1322,7 +1339,9 @@ async function sendImageToGeminiHttp(base64Data, prompt) {
         // Stream the response
         let fullText = '';
         let isFirst = true;
+        let imageUsage = null;
         for await (const chunk of response) {
+            if (chunk.usageMetadata) imageUsage = chunk.usageMetadata;
             const chunkText = chunk.text;
             if (chunkText) {
                 fullText += chunkText;
@@ -1332,6 +1351,7 @@ async function sendImageToGeminiHttp(base64Data, prompt) {
             }
         }
 
+        recordUsage('screenshot', model, imageUsage);
         console.log(`Image response completed from ${model}`);
 
         // Save screen analysis to history
