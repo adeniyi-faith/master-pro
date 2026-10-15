@@ -376,6 +376,7 @@ export class CheatingDaddyApp extends LitElement {
         selectedProfile: { type: String },
         selectedLanguage: { type: String },
         responses: { type: Array },
+        questions: { type: Array },
         currentResponseIndex: { type: Number },
         selectedScreenshotInterval: { type: String },
         selectedImageQuality: { type: String },
@@ -403,6 +404,8 @@ export class CheatingDaddyApp extends LitElement {
         this.selectedImageQuality = 'medium';
         this.layoutMode = 'normal';
         this.responses = [];
+        this.questions = [];
+        this._pendingQuestion = '';
         this.currentResponseIndex = -1;
         this._viewInstances = new Map();
         this._isClickThrough = false;
@@ -468,6 +471,9 @@ export class CheatingDaddyApp extends LitElement {
 
         if (window.require) {
             const { ipcRenderer } = window.require('electron');
+            ipcRenderer.on('question-asked', (_, question) => {
+                this._pendingQuestion = question || '';
+            });
             ipcRenderer.on('new-response', (_, response) => this.addNewResponse(response));
             ipcRenderer.on('update-response', (_, response) => this.updateCurrentResponse(response));
             ipcRenderer.on('update-status', (_, status) => this.setStatus(status));
@@ -489,6 +495,7 @@ export class CheatingDaddyApp extends LitElement {
         this._stopTimer();
         if (window.require) {
             const { ipcRenderer } = window.require('electron');
+            ipcRenderer.removeAllListeners('question-asked');
             ipcRenderer.removeAllListeners('new-response');
             ipcRenderer.removeAllListeners('update-response');
             ipcRenderer.removeAllListeners('update-status');
@@ -538,10 +545,20 @@ export class CheatingDaddyApp extends LitElement {
     addNewResponse(response) {
         const wasOnLatest = this.currentResponseIndex === this.responses.length - 1;
         this.responses = [...this.responses, response];
+        // The question that triggered this answer ('' for system messages)
+        this.questions = [...this.questions, this._pendingQuestion];
+        this._pendingQuestion = '';
         if (wasOnLatest || this.currentResponseIndex === -1) {
             this.currentResponseIndex = this.responses.length - 1;
         }
         this._awaitingNewResponse = false;
+        this.requestUpdate();
+    }
+
+    // Replaces the text of one answer (used by the one-click "make longer / regenerate" buttons)
+    replaceResponseAt(index, text) {
+        if (index < 0 || index >= this.responses.length) return;
+        this.responses = this.responses.map((r, i) => (i === index ? text : r));
         this.requestUpdate();
     }
 
@@ -641,6 +658,8 @@ export class CheatingDaddyApp extends LitElement {
 
         cheatingDaddy.startCapture(this.selectedScreenshotInterval, this.selectedImageQuality);
         this.responses = [];
+        this.questions = [];
+        this._pendingQuestion = '';
         this.currentResponseIndex = -1;
         this.startTime = Date.now();
         this.sessionActive = true;
@@ -795,11 +814,13 @@ export class CheatingDaddyApp extends LitElement {
                 return html`
                     <assistant-view
                         .responses=${this.responses}
+                        .questions=${this.questions}
                         .currentResponseIndex=${this.currentResponseIndex}
                         .selectedProfile=${this.selectedProfile}
                         .onSendText=${msg => this.handleSendText(msg)}
                         .shouldAnimateResponse=${this.shouldAnimateResponse}
                         @response-index-changed=${this.handleResponseIndexChanged}
+                        @response-rewritten=${e => this.replaceResponseAt(e.detail.index, e.detail.text)}
                         @response-animation-complete=${() => {
                             this.shouldAnimateResponse = false;
                             this._currentResponseIsComplete = true;

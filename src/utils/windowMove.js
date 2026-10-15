@@ -74,7 +74,7 @@ function addMoveGrip() {
     const bar = document.createElement('div');
     bar.dataset.windowChrome = '1';
     bar.style.cssText =
-        'position:fixed;top:2px;left:50%;transform:translateX(-50%);z-index:2147483646;display:flex;gap:2px;' +
+        'position:fixed;top:5px;left:48px;z-index:2147483646;display:flex;gap:2px;' +
         'align-items:center;padding:2px;border-radius:10px;background:rgba(30,30,30,.55);-webkit-app-region:no-drag;opacity:.75';
     const grip = document.createElement('div');
     grip.title = 'Press and drag to move the window';

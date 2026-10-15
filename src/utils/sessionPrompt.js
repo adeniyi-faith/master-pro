@@ -28,6 +28,7 @@ function buildAnswerStyle(prefs) {
     if (tone) lines.push(tone);
     if (FORMAT_INSTRUCTIONS[prefs.answerFormat]) lines.push(FORMAT_INSTRUCTIONS[prefs.answerFormat]);
     if (prefs.useStarMethod) lines.push(STAR_INSTRUCTION);
+    lines.push('Write the answer as plain text. Do not wrap it in quotation marks, asterisks or a leading dash.');
     return lines.length ? `Answer style\n${lines.map(line => `- ${line}`).join('\n')}` : '';
 }
 

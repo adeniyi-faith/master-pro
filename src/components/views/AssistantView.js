@@ -159,6 +159,158 @@ export class AssistantView extends LitElement {
             background: #444444;
         }
 
+
+        /* ── Conversation feed ── */
+
+        .turn {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin: 10px 0 18px;
+            animation: turn-in 0.35s ease both;
+        }
+
+        @keyframes turn-in {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: none; }
+        }
+
+        .question {
+            align-self: flex-end;
+            max-width: 85%;
+            background: linear-gradient(135deg, #5b6cff, #8b5cf6);
+            color: #fff;
+            padding: 8px 14px;
+            border-radius: 16px 16px 4px 16px;
+            font-size: 0.9em;
+            line-height: 1.4;
+            box-shadow: 0 2px 10px rgba(80, 90, 255, 0.25);
+        }
+
+        .question-label {
+            align-self: flex-end;
+            font-size: 10px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-bottom: -2px;
+        }
+
+        .answer-card {
+            position: relative;
+            align-self: flex-start;
+            max-width: 100%;
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-left: 3px solid #7c5cff;
+            border-radius: 4px 14px 14px 14px;
+            padding: 4px 14px 8px;
+            transition: border-color 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .answer-card.latest {
+            box-shadow: 0 0 0 1px rgba(124, 92, 255, 0.25), 0 4px 18px rgba(80, 90, 255, 0.12);
+        }
+
+        .answer-card.live::after {
+            content: '';
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: 0;
+            height: 2px;
+            border-radius: 2px;
+            background: linear-gradient(90deg, transparent, #7c5cff, #5b6cff, transparent);
+            background-size: 200% 100%;
+            animation: shimmer 1.2s linear infinite;
+        }
+
+        @keyframes shimmer {
+            from { background-position: 200% 0; }
+            to { background-position: -200% 0; }
+        }
+
+        .answer-card.working {
+            opacity: 0.6;
+        }
+
+        .answer-card.system {
+            border-left-color: var(--border-strong);
+            color: var(--text-secondary, var(--text-primary));
+        }
+
+        .answer-body > :first-child { margin-top: 0.5em; }
+        .answer-body > :last-child { margin-bottom: 0.3em; }
+
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 6px;
+            padding-top: 8px;
+            border-top: 1px dashed var(--border);
+        }
+
+        .chip {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            color: var(--text-secondary, var(--text-primary));
+            font-size: 11px;
+            font-family: var(--font);
+            padding: 3px 10px;
+            border-radius: 100px;
+            cursor: pointer;
+            transition: transform 0.12s ease, border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+        }
+
+        .chip:hover:not(:disabled) {
+            border-color: #7c5cff;
+            color: var(--text-primary);
+            background: var(--bg-surface);
+            transform: translateY(-1px);
+        }
+
+        .chip:disabled {
+            opacity: 0.4;
+            cursor: default;
+        }
+
+        .chip.done {
+            border-color: #34c759;
+            color: #34c759;
+        }
+
+        .rework-error {
+            font-size: 11px;
+            color: var(--danger, #ef4444);
+            margin-top: 4px;
+        }
+
+        .listening {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 14px;
+            height: 100%;
+            color: var(--text-muted);
+            font-size: 0.95em;
+            text-align: center;
+        }
+
+        .orb {
+            width: 46px;
+            height: 46px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 35% 30%, #a99bff, #7c5cff 60%, #4b3fd1);
+            animation: orb 2.4s ease-in-out infinite;
+        }
+
+        @keyframes orb {
+            0%, 100% { transform: scale(0.9); box-shadow: 0 0 0 0 rgba(124, 92, 255, 0.5); }
+            50% { transform: scale(1.05); box-shadow: 0 0 0 16px rgba(124, 92, 255, 0); }
+        }
+
         /* ── Response navigation strip ── */
 
         .response-nav {
@@ -302,6 +454,7 @@ export class AssistantView extends LitElement {
 
     static properties = {
         responses: { type: Array },
+        questions: { type: Array },
         currentResponseIndex: { type: Number },
         selectedProfile: { type: String },
         onSendText: { type: Function },
@@ -312,6 +465,13 @@ export class AssistantView extends LitElement {
     constructor() {
         super();
         this.responses = [];
+        this.questions = [];
+        this._busy = new Map(); // answer index -> request id while a rewrite is running
+        this._undo = new Map(); // answer index -> text before the last rewrite
+        this._errors = new Map();
+        this._copied = -1;
+        this._markdownCache = new Map();
+        this._lastChunkAt = 0;
         this.currentResponseIndex = -1;
         this.selectedProfile = 'interview';
         this.onSendText = () => {};
@@ -384,9 +544,15 @@ export class AssistantView extends LitElement {
         return doc.body.innerHTML;
     }
 
+    _scrollToTurn(index) {
+        const turn = this.shadowRoot.querySelector(`[data-turn="${index}"]`);
+        if (turn) turn.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    }
+
     navigateToPreviousResponse() {
         if (this.currentResponseIndex > 0) {
             this.currentResponseIndex--;
+            this._scrollToTurn(this.currentResponseIndex);
             this.dispatchEvent(
                 new CustomEvent('response-index-changed', {
                     detail: { index: this.currentResponseIndex },
@@ -399,6 +565,7 @@ export class AssistantView extends LitElement {
     navigateToNextResponse() {
         if (this.currentResponseIndex < this.responses.length - 1) {
             this.currentResponseIndex++;
+            this._scrollToTurn(this.currentResponseIndex);
             this.dispatchEvent(
                 new CustomEvent('response-index-changed', {
                     detail: { index: this.currentResponseIndex },
@@ -628,13 +795,22 @@ export class AssistantView extends LitElement {
 
     firstUpdated() {
         super.firstUpdated();
-        this.updateResponseContent();
+        this.dispatchEvent(new CustomEvent('response-animation-complete', { bubbles: true, composed: true }));
     }
 
     updated(changedProperties) {
         super.updated(changedProperties);
-        if (changedProperties.has('responses') || changedProperties.has('currentResponseIndex')) {
-            this.updateResponseContent();
+        if (changedProperties.has('responses')) {
+            this._lastChunkAt = Date.now();
+            clearTimeout(this._liveTimer);
+            this._liveTimer = setTimeout(() => this.requestUpdate(), 1300); // stop the "writing" shimmer
+            // Keep the newest answer in view while it is being written
+            const container = this.shadowRoot.querySelector('#responseContainer');
+            const wasLatest = this.currentResponseIndex >= this.responses.length - 2;
+            if (container && wasLatest) container.scrollTop = container.scrollHeight;
+            if (this.shouldAnimateResponse) {
+                this.dispatchEvent(new CustomEvent('response-animation-complete', { bubbles: true, composed: true }));
+            }
         }
 
         if (changedProperties.has('isAnalyzing')) {
@@ -652,39 +828,120 @@ export class AssistantView extends LitElement {
         }
     }
 
-    updateResponseContent() {
-        const container = this.shadowRoot.querySelector('#responseContainer');
-        if (container) {
-            const currentResponse = this.getCurrentResponse();
-            const renderedResponse = this.renderMarkdown(currentResponse);
-            container.innerHTML = renderedResponse;
-            if (this.shouldAnimateResponse) {
-                this.dispatchEvent(new CustomEvent('response-animation-complete', { bubbles: true, composed: true }));
+    async _rework(index, mode) {
+        const question = this.questions[index];
+        const answer = this.responses[index];
+        if (!question || this._busy.has(index) || !window.require) return;
+        const { ipcRenderer } = window.require('electron');
+        const requestId = `${Date.now()}-${index}`;
+        this._busy.set(index, requestId);
+        this._errors.delete(index);
+        const before = answer;
+        let started = false;
+        const onUpdate = (_, data) => {
+            if (data.requestId !== requestId) return;
+            if (data.error) {
+                this._errors.set(index, `Could not do that: ${data.error}`);
+            } else if (data.text) {
+                if (!started) {
+                    started = true;
+                    this._undo.set(index, before);
+                }
+                this.dispatchEvent(new CustomEvent('response-rewritten', { detail: { index, text: data.text } }));
             }
+            if (data.done) {
+                this._busy.delete(index);
+                ipcRenderer.removeListener('rework-update', onUpdate);
+            }
+            this.requestUpdate();
+        };
+        ipcRenderer.on('rework-update', onUpdate);
+        this.requestUpdate();
+        await ipcRenderer.invoke('rework-answer', { question, answer, mode, requestId });
+    }
+
+    _undoRework(index) {
+        const previous = this._undo.get(index);
+        if (previous === undefined) return;
+        this._undo.delete(index);
+        this.dispatchEvent(new CustomEvent('response-rewritten', { detail: { index, text: previous } }));
+        this.requestUpdate();
+    }
+
+    async _copy(index) {
+        try {
+            await navigator.clipboard.writeText(this.responses[index]);
+            this._copied = index;
+            this.requestUpdate();
+            setTimeout(() => {
+                this._copied = -1;
+                this.requestUpdate();
+            }, 1200);
+        } catch (e) {
+            console.warn('Copy failed:', e);
         }
     }
 
-    render() {
-        const hasMultipleResponses = this.responses.length > 1;
+    _markdown(text) {
+        let cached = this._markdownCache.get(text);
+        if (cached === undefined) {
+            cached = this.renderMarkdown(text);
+            if (this._markdownCache.size > 200) this._markdownCache.clear();
+            this._markdownCache.set(text, cached);
+        }
+        return cached;
+    }
+
+    _renderTurn(response, index) {
+        const question = this.questions[index] || '';
+        const isLatest = index === this.responses.length - 1;
+        const busy = this._busy.has(index);
+        const isLive = isLatest && Date.now() - this._lastChunkAt < 1200;
+        const isScreen = question.startsWith('📷');
+        const canRework = Boolean(question) && !busy;
+        const actions = [
+            ['regenerate', '↻ Regenerate', isScreen],
+            ['longer', '＋ Longer', false],
+            ['shorter', '− Shorter', false],
+            ['simpler', '✦ Simpler', false],
+            ['example', '💡 Add example', false],
+        ];
 
         return html`
-            <div class="response-container" id="responseContainer"></div>
-
-            ${hasMultipleResponses ? html`
-                <div class="response-nav">
-                    <button class="nav-btn" @click=${this.navigateToPreviousResponse} ?disabled=${this.currentResponseIndex <= 0} title="Previous response">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                            <path fill-rule="evenodd" d="M11.78 5.22a.75.75 0 0 1 0 1.06L8.06 10l3.72 3.72a.75.75 0 1 1-1.06 1.06l-4.25-4.25a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 0Z" clip-rule="evenodd" />
-                        </svg>
-                    </button>
-                    <span class="response-counter">${this.currentResponseIndex + 1} of ${this.responses.length}</span>
-                    <button class="nav-btn" @click=${this.navigateToNextResponse} ?disabled=${this.currentResponseIndex >= this.responses.length - 1} title="Next response">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                            <path fill-rule="evenodd" d="M8.22 5.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L11.94 10 8.22 6.28a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
-                        </svg>
-                    </button>
+            <div class="turn" data-turn=${index}>
+                ${question
+                    ? html`<div class="question-label">${isScreen ? 'Screen' : 'Question'}</div>
+                          <div class="question">${question}</div>`
+                    : ''}
+                <div class="answer-card ${isLatest ? 'latest' : ''} ${isLive || busy ? 'live' : ''} ${busy ? 'working' : ''} ${question ? '' : 'system'}">
+                    <div class="answer-body" .innerHTML=${this._markdown(response)}></div>
+                    ${question
+                        ? html`<div class="actions">
+                              ${actions
+                                  .filter(([, , hidden]) => !hidden)
+                                  .map(([mode, label]) => html`<button class="chip" ?disabled=${!canRework} @click=${() => this._rework(index, mode)}>${label}</button>`)}
+                              ${this._undo.has(index) && !busy ? html`<button class="chip" @click=${() => this._undoRework(index)}>↩ Previous version</button>` : ''}
+                              <button class="chip ${this._copied === index ? 'done' : ''}" @click=${() => this._copy(index)}>${this._copied === index ? '✓ Copied' : '⧉ Copy'}</button>
+                          </div>`
+                        : ''}
+                    ${this._errors.has(index) ? html`<div class="rework-error">${this._errors.get(index)}</div>` : ''}
                 </div>
-            ` : ''}
+            </div>
+        `;
+    }
+
+    render() {
+        const profileNames = this.getProfileNames();
+
+        return html`
+            <div class="response-container" id="responseContainer">
+                ${this.responses.length === 0
+                    ? html`<div class="listening">
+                          <div class="orb"></div>
+                          <div>Listening to your ${profileNames[this.selectedProfile] || 'session'}...<br /><span style="font-size: 0.85em">Questions and answers will appear here</span></div>
+                      </div>`
+                    : this.responses.map((response, index) => this._renderTurn(response, index))}
+            </div>
 
             <div class="input-bar">
                 <div class="input-bar-inner">

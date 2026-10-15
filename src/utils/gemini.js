@@ -23,6 +23,7 @@ let groqConversationHistory = [];
 // Conversation tracking variables
 let currentSessionId = null;
 let currentTranscription = '';
+let lastTypedQuestion = ''; // text typed by the user, used when the Live model answers it
 let conversationHistory = [];
 let screenAnalysisHistory = [];
 let currentProfile = null;
@@ -59,14 +60,113 @@ let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 3;
 const RECONNECT_DELAY = 2000;
 
+// Removes the stray "- ***"...***" wrapping some models put around a short answer
+function tidyAnswer(text) {
+    if (typeof text !== 'string') return text;
+    const wrapped = /^\s*(?:-\s*\*{2,3}\s*["“]?|\*{2,3}["“])/;
+    if (!wrapped.test(text)) return text;
+    return text.replace(wrapped, '').replace(/["”]?\s*\*{2,3}\s*$/, '').trim();
+}
+
 function sendToRenderer(channel, data) {
     const windows = BrowserWindow.getAllWindows();
     if (windows.length > 0) {
-        windows[0].webContents.send(channel, data);
+        windows[0].webContents.send(channel, channel === 'new-response' || channel === 'update-response' ? tidyAnswer(data) : data);
     }
 }
 
+// Heard speech that is not worth answering: one- or two-word scraps ("Yeah.", "Thank you.", "Look at"),
+// or the same question again within a few seconds (the microphone often hears the speakers twice).
+const MIN_QUESTION_WORDS = 3;
+const REPEAT_QUESTION_WINDOW_MS = 15000;
+let lastQuestionKey = '';
+let lastQuestionAt = 0;
+
+function shouldSkipQuestion(text) {
+    const key = text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+    if (key.split(' ').filter(Boolean).length < MIN_QUESTION_WORDS) return true;
+    if (key === lastQuestionKey && Date.now() - lastQuestionAt < REPEAT_QUESTION_WINDOW_MS) return true;
+    lastQuestionKey = key;
+    lastQuestionAt = Date.now();
+    return false;
+}
+
 // Build context message for session restoration
+// Tells the screen which question the answer that is about to appear belongs to
+function announceQuestion(text) {
+    sendToRenderer('question-asked', (text || '').trim());
+}
+
+// One-click ways to change an answer that is already on screen
+const REWORK_INSTRUCTIONS = {
+    regenerate: 'Write a completely fresh answer to the same question, using different wording and a different angle. Keep about the same length.',
+    longer: 'Rewrite the answer so it is longer and more detailed, adding useful substance (not filler). Keep the same style.',
+    shorter: 'Rewrite the answer so it is much shorter: the key point in one or two sentences.',
+    simpler: 'Rewrite the answer in plainer, simpler words that anyone could follow, without losing the key point.',
+    example: 'Rewrite the answer and include one short, concrete example that supports the main point.',
+};
+const REWORK_MAX_CHARS = 8000;
+
+// Rewrites one answer according to `mode` and streams the new version to the screen as 'rework-update'.
+// It does not change the saved conversation history.
+async function reworkAnswer({ question, answer, mode, requestId }) {
+    const instruction = REWORK_INSTRUCTIONS[mode];
+    const send = payload => sendToRenderer('rework-update', { requestId, ...payload });
+    if (!instruction || typeof question !== 'string' || typeof answer !== 'string') {
+        send({ done: true, error: 'Invalid request' });
+        return;
+    }
+    const prompt =
+        `Question that was asked:\n${question.slice(0, REWORK_MAX_CHARS)}\n\n` +
+        `Your previous answer:\n${answer.slice(0, REWORK_MAX_CHARS)}\n\n` +
+        `${instruction} Reply with only the new answer.`;
+    const systemPrompt = currentSystemPrompt || 'You are a helpful assistant.';
+
+    try {
+        let fullText = '';
+        if (getApiKey()) {
+            const ai = new GoogleGenAI({ apiKey: getApiKey() });
+            const stream = await ai.models.generateContentStream({
+                model: getGeminiAnswerModel() || 'gemini-3.5-flash-lite',
+                contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                config: { systemInstruction: systemPrompt },
+            });
+            for await (const chunk of stream) {
+                if (chunk.text) {
+                    fullText += chunk.text;
+                    send({ text: fullText, done: false });
+                }
+            }
+        } else if (hasGroqKey()) {
+            const config = getConfig();
+            const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${getGroqApiKey()}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model: config.groqModel,
+                    messages: [
+                        { role: 'system', content: systemPrompt },
+                        { role: 'user', content: prompt },
+                    ],
+                    temperature: 0.7,
+                    max_completion_tokens: GROQ_MAX_COMPLETION_TOKENS,
+                    ...getGroqReasoningOptions(config.groqModel, config.disableGroqThinking),
+                }),
+            });
+            if (!response.ok) throw new Error(`Groq error ${response.status}`);
+            const json = await response.json();
+            fullText = stripThinkingTags(json.choices?.[0]?.message?.content || '');
+        } else {
+            throw new Error('No API key set');
+        }
+        if (!fullText.trim()) throw new Error('Empty answer');
+        send({ text: fullText, done: true });
+    } catch (error) {
+        console.error('Error reworking answer:', error);
+        send({ done: true, error: error.message });
+    }
+}
+
 function buildContextMessage() {
     const lastTurns = conversationHistory.slice(-20);
     const validTurns = lastTurns.filter(turn => turn.transcription?.trim() && turn.ai_response?.trim());
@@ -113,6 +213,7 @@ function saveConversationTurn(transcription, aiResponse) {
         ai_response: aiResponse.trim(),
     };
 
+    conversationTurn.ai_response = tidyAnswer(conversationTurn.ai_response);
     conversationHistory.push(conversationTurn);
     console.log('Saved conversation turn:', conversationTurn);
 
@@ -257,13 +358,16 @@ function sendFinalTranscriptionToGemini() {
     if (transcription === '') {
         return;
     }
+    if (shouldSkipQuestion(transcription)) {
+        return;
+    }
     groqRequestStartedForTurn = true;
     sendToGeminiText(transcription);
 }
 
 // If the speaker goes quiet for this long after the last words were heard, the question is treated as ended
 // even when the Live model has not replied (it can choose to stay silent).
-const QUESTION_END_SILENCE_MS = 1500;
+const QUESTION_END_SILENCE_MS = 2200;
 let questionEndTimer = null;
 
 function clearQuestionEndTimer() {
@@ -297,6 +401,9 @@ function sendFinalTranscriptionToGroq() {
         return;
     }
 
+    if (shouldSkipQuestion(transcription)) {
+        return;
+    }
     groqRequestStartedForTurn = true;
     sendToGroq(transcription);
 }
@@ -363,6 +470,7 @@ async function sendToGroq(transcription) {
     const config = getConfig();
     const modelToUse = config.groqModel;
 
+    announceQuestion(transcription);
     console.log(`Sending to Groq (${modelToUse}):`, transcription.substring(0, 100) + '...');
     logTransportEvent('groq.text.request', {
         model: modelToUse,
@@ -634,6 +742,7 @@ async function sendToGeminiText(transcription) {
     }
 
     const answerModel = getGeminiAnswerModel() || 'gemini-3.5-flash-lite';
+    announceQuestion(transcription);
     console.log(`Sending to ${answerModel}:`, transcription.substring(0, 100) + '...');
 
     groqConversationHistory.push({
@@ -765,6 +874,10 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
 
                     if (!usesTextAnswers() && message.serverContent?.outputTranscription?.text) {
                         const isFirstChunk = messageBuffer === '';
+                        if (isFirstChunk) {
+                            announceQuestion(currentTranscription.trim() || lastTypedQuestion);
+                            lastTypedQuestion = '';
+                        }
                         messageBuffer += message.serverContent.outputTranscription.text;
                         sendToRenderer(isFirstChunk ? 'new-response' : 'update-response', messageBuffer);
                     }
@@ -1310,6 +1423,7 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
             }
 
             process.stdout.write('!');
+            announceQuestion('📷 Screen capture');
 
             if (currentProviderMode === 'cloud') {
                 const sent = sendCloudImage(data);
@@ -1366,6 +1480,8 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
             if (usesTextAnswers()) {
                 groqRequestStartedForTurn = true;
                 sendQuestionToAnswerModel(text.trim());
+            } else {
+                lastTypedQuestion = text.trim();
             }
 
             await geminiSessionRef.current.sendRealtimeInput({ text: text.trim() });
@@ -1440,6 +1556,11 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
             console.error('Error closing session:', error);
             return { success: false, error: error.message };
         }
+    });
+
+    ipcMain.handle('rework-answer', async (event, request) => {
+        reworkAnswer(request || {});
+        return { success: true };
     });
 
     ipcMain.handle('generate-session-notes', async (event, sessionId) => {
