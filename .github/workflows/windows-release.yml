@@ -1,10 +1,13 @@
 # Builds the Windows app and publishes it as a downloadable GitHub release.
-# Run it from the Actions tab ("Build Windows download" > Run workflow), or push a tag that starts with "v".
+# It runs when the "release-build" branch is updated or a tag starting with "v" is pushed,
+# and can be started by hand from the Actions tab ("Build Windows download" > Run workflow).
 name: Build Windows download
 
 on:
   workflow_dispatch:
   push:
+    branches:
+      - release-build
     tags:
       - 'v*'
 
