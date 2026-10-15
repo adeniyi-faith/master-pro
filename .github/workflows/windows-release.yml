@@ -24,8 +24,10 @@ jobs:
         with:
           node-version: 20
 
+      # Optional extras (such as the "canvas" drawing library that the PDF reader can use) are skipped:
+      # the app does not need them, and building them needs tools the build machine does not have.
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --omit=optional
 
       - name: Package the app
         run: npx electron-forge package --platform=win32 --arch=x64
