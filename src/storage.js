@@ -258,7 +258,9 @@ function setLimits(limits) {
 
 function getTodayDateString() {
     const now = new Date();
-    return now.toISOString().split('T')[0]; // YYYY-MM-DD
+    const pad = n => String(n).padStart(2, '0');
+    // Use the local calendar date so the daily counter resets at local midnight
+    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`; // YYYY-MM-DD
 }
 
 function getTodayLimits() {
