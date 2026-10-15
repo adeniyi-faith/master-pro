@@ -125,6 +125,9 @@ export class AICustomizeView extends LitElement {
         _typeEdits: { state: true },
         _typeTones: { state: true },
         _documents: { state: true },
+        _answers: { state: true },
+        _draft: { state: true },
+        _answerMessage: { state: true },
         _message: { state: true },
         _dragOver: { state: true },
     };
@@ -139,10 +142,14 @@ export class AICustomizeView extends LitElement {
         this._typeEdits = {};
         this._typeTones = {};
         this._documents = [];
+        this._answers = [];
+        this._draft = { id: '', heading: '', body: '' };
+        this._answerMessage = '';
         this._message = '';
         this._dragOver = false;
         this._loadFromStorage();
         this._loadDocuments();
+        this._loadAnswers();
     }
 
     async _loadFromStorage() {
@@ -176,6 +183,42 @@ export class AICustomizeView extends LitElement {
         } catch (error) {
             console.error('Error loading documents:', error);
         }
+    }
+
+    async _loadAnswers() {
+        try {
+            this._answers = await this._ipc.invoke('answerbank:list');
+        } catch (error) {
+            console.error('Error loading answer bank:', error);
+        }
+    }
+
+    async _saveAnswer() {
+        const result = await this._ipc.invoke('answerbank:save', this._draft);
+        if (!result.success) {
+            this._answerMessage = result.error;
+            return;
+        }
+        this._draft = { id: '', heading: '', body: '' };
+        this._answerMessage = 'Saved.';
+        await this._loadAnswers();
+    }
+
+    _editAnswer(entry) {
+        this._draft = { id: entry.id, heading: entry.heading, body: entry.body };
+        this._answerMessage = '';
+    }
+
+    _cancelEdit() {
+        this._draft = { id: '', heading: '', body: '' };
+        this._answerMessage = '';
+    }
+
+    async _removeAnswer(id) {
+        await this._ipc.invoke('answerbank:remove', id);
+        if (this._draft.id === id) this._draft = { id: '', heading: '', body: '' };
+        this._answerMessage = '';
+        await this._loadAnswers();
     }
 
     _showResults(results) {
@@ -374,6 +417,54 @@ export class AICustomizeView extends LitElement {
                                       )}
                             </div>
                             <div class="form-help">Files stay on this computer. Their text is sent to your AI provider (Gemini or Groq) during a session. Very long files are trimmed.</div>
+                        </div>
+                    </section>
+
+                    <section class="surface">
+                        <div class="surface-title">Answer Bank</div>
+                        <div class="surface-subtitle">
+                            Answers you have written yourself. When a question matches one, the AI builds its answer from yours instead of starting from scratch.
+                        </div>
+                        <div class="form-grid">
+                            <div class="type-card">
+                                <input
+                                    class="control"
+                                    type="text"
+                                    maxlength="120"
+                                    placeholder="Heading, e.g. Tell me about a time you led a project"
+                                    .value=${this._draft.heading}
+                                    @input=${e => { this._draft = { ...this._draft, heading: e.target.value }; }}
+                                />
+                                <textarea
+                                    class="control"
+                                    maxlength="4000"
+                                    placeholder="Your answer, written the way you would say it"
+                                    .value=${this._draft.body}
+                                    @input=${e => { this._draft = { ...this._draft, body: e.target.value }; }}
+                                ></textarea>
+                                <div class="doc-actions">
+                                    <button class="doc-button" @click=${() => this._saveAnswer()}>${this._draft.id ? 'Save changes' : 'Add to answer bank'}</button>
+                                    ${this._draft.id ? html`<button class="doc-button" @click=${() => this._cancelEdit()}>Cancel</button>` : ''}
+                                </div>
+                                ${this._answerMessage ? html`<div class="form-help">${this._answerMessage}</div>` : ''}
+                            </div>
+                            ${this._answers.length === 0
+                                ? html`<div class="form-help">No answers saved yet.</div>`
+                                : this._answers.map(
+                                      entry => html`
+                                          <div class="type-card">
+                                              <div class="type-head">
+                                                  <span class="type-name">${entry.heading}</span>
+                                                  <span>
+                                                      <button class="doc-button small" @click=${() => this._editAnswer(entry)}>Edit</button>
+                                                      <button class="doc-button small" @click=${() => this._removeAnswer(entry.id)}>Remove</button>
+                                                  </span>
+                                              </div>
+                                              <div class="form-help" style="white-space: pre-wrap;">${entry.body}</div>
+                                          </div>
+                                      `
+                                  )}
+                            <div class="form-help">Answers stay on this computer. Their text is sent to your AI provider during a session. Keep the bank to your strongest answers.</div>
                         </div>
                     </section>
 

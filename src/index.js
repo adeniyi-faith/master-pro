@@ -7,6 +7,7 @@ const { createWindow, updateGlobalShortcuts } = require('./utils/window');
 const { setupGeminiIpcHandlers, stopMacOSAudioCapture, sendToRenderer } = require('./utils/gemini');
 const storage = require('./storage');
 const documents = require('./documents');
+const answerBank = require('./answerBank');
 
 const geminiSessionRef = { current: null };
 let mainWindow = null;
@@ -310,6 +311,11 @@ function setupGeneralIpcHandlers() {
     ipcMain.handle('documents:remove', async (event, id) => documents.removeDocument(id));
 
     ipcMain.handle('documents:get-context', async () => documents.getDocumentsContext());
+
+    ipcMain.handle('answerbank:list', async () => answerBank.listAnswers());
+    ipcMain.handle('answerbank:save', async (event, entry) => answerBank.saveAnswer(entry));
+    ipcMain.handle('answerbank:remove', async (event, id) => answerBank.removeAnswer(id));
+    ipcMain.handle('answerbank:get-context', async () => answerBank.getAnswerBankContext());
 
     ipcMain.on('update-keybinds', (event, newKeybinds) => {
         if (mainWindow) {

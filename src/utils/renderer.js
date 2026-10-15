@@ -141,7 +141,7 @@ function arrayBufferToBase64(buffer) {
     return btoa(binary);
 }
 
-// Session details, answer style, typed notes and the text of any uploaded documents
+// Session details, answer style, typed notes, the answer bank and the text of any uploaded documents
 async function buildSessionContext(prefs) {
     let docs = '';
     try {
@@ -149,7 +149,13 @@ async function buildSessionContext(prefs) {
     } catch (error) {
         console.error('Could not load documents:', error);
     }
-    return buildSessionPrompt(prefs, docs);
+    let answers = '';
+    try {
+        answers = await ipcRenderer.invoke('answerbank:get-context');
+    } catch (error) {
+        console.error('Could not load the answer bank:', error);
+    }
+    return buildSessionPrompt(prefs, docs, answers);
 }
 
 async function initializeGemini(profile = 'interview', language = 'en-US') {
