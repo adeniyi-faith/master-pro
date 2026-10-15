@@ -3,7 +3,7 @@ const { BrowserWindow, ipcMain } = require('electron');
 const { spawn } = require('child_process');
 const { saveDebugAudio } = require('../audioUtils');
 const { getSystemPrompt } = require('./prompts');
-const { getAvailableModel, incrementLimitCount, getApiKey, getGroqApiKey, incrementCharUsage, getConfig } = require('../storage');
+const { getAvailableModel, incrementLimitCount, getApiKey, getGroqApiKey, incrementCharUsage, getConfig, getPreferences } = require('../storage');
 const { connectCloud, sendCloudAudio, sendCloudText, sendCloudImage, closeCloud, isCloudActive, setOnTurnComplete } = require('./cloud');
 const { startTransportLog, logTransportEvent, closeTransportLog } = require('./transportLogger');
 
@@ -158,11 +158,11 @@ function getCurrentSessionData() {
 async function getEnabledTools() {
     const tools = [];
 
-    // Check if Google Search is enabled (default: true)
-    const googleSearchEnabled = await getStoredSetting('googleSearchEnabled', 'true');
+    // Read the saved preference (the same one the Customize screen writes)
+    const googleSearchEnabled = getPreferences().googleSearchEnabled === true;
     console.log('Google Search enabled:', googleSearchEnabled);
 
-    if (googleSearchEnabled === 'true') {
+    if (googleSearchEnabled) {
         tools.push({ googleSearch: {} });
         console.log('Added Google Search tool');
     } else {
@@ -812,7 +812,8 @@ async function attemptReconnect() {
                 }
             }
 
-            // Don't reset reconnectAttempts here - let it reset on next fresh session
+            // Reconnected fine, so a later drop gets a fresh set of attempts
+            reconnectAttempts = 0;
             sendToRenderer('update-status', 'Reconnected! Listening...');
             console.log('Session reconnected successfully');
             return true;
@@ -829,7 +830,7 @@ async function attemptReconnect() {
     // Max attempts reached - notify frontend
     console.log('Max reconnection attempts reached');
     sendToRenderer('reconnect-failed', {
-        message: 'Tried 3 times to reconnect. Must be upstream/network issues. Try restarting or download updated app from site.',
+        message: `Tried ${MAX_RECONNECT_ATTEMPTS} times to reconnect. Must be upstream/network issues. Try restarting or download updated app from site.`,
     });
     sessionParams = null;
     return false;
@@ -1336,7 +1337,7 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
     ipcMain.handle('update-google-search-setting', async (event, enabled) => {
         try {
             console.log('Google Search setting updated to:', enabled);
-            // The setting is already saved in localStorage by the renderer
+            // The setting is already saved in the preferences file by the renderer
             // This is just for logging/confirmation
             return { success: true };
         } catch (error) {
