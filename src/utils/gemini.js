@@ -100,6 +100,44 @@ function announceQuestion(text) {
     sendToRenderer('question-asked', (text || '').trim());
 }
 
+// "fetch failed" and similar mean the computer could not reach Google (internet drop, VPN, firewall, timeout)
+function isNetworkError(error) {
+    const text = `${error?.message || ''} ${error?.cause?.code || ''} ${error?.cause?.message || ''}`;
+    return /fetch failed|ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|ENETUNREACH|EPIPE|socket|network|terminated|UND_ERR/i.test(text);
+}
+
+// A message a person can act on, instead of "TypeError: fetch failed"
+function friendlyErrorMessage(error) {
+    if (isNetworkError(error)) {
+        return "Couldn't reach Google. Check your internet connection (or VPN or firewall) and try again.";
+    }
+    return error?.message || 'Unknown error';
+}
+
+// Starts a streamed Gemini answer and passes each growing text to onText(text, isFirst). If the connection drops before
+// anything has arrived, it quietly tries again (up to 3 tries in total). Returns the full text.
+async function streamGeminiWithRetry(ai, params, onText) {
+    const maxTries = 3;
+    for (let attempt = 1; ; attempt++) {
+        let fullText = '';
+        try {
+            const stream = await ai.models.generateContentStream(params);
+            for await (const chunk of stream) {
+                if (chunk.text) {
+                    fullText += chunk.text;
+                    onText(fullText, fullText === chunk.text);
+                }
+            }
+            return fullText;
+        } catch (error) {
+            const canRetry = attempt < maxTries && fullText === '' && isNetworkError(error);
+            console.error(`Gemini request failed (try ${attempt} of ${maxTries}${canRetry ? ', retrying' : ''}):`, error, error?.cause || '');
+            if (!canRetry) throw error;
+            await new Promise(resolve => setTimeout(resolve, attempt * 1000));
+        }
+    }
+}
+
 // One-click ways to change an answer that is already on screen
 const REWORK_INSTRUCTIONS = {
     regenerate: 'Write a completely fresh answer to the same question, using different wording and a different angle. Keep about the same length.',
@@ -130,17 +168,15 @@ async function reworkAnswer({ question, answer, mode, requestId }) {
         let fullText = '';
         if (getApiKey()) {
             const ai = new GoogleGenAI({ apiKey: getApiKey() });
-            const stream = await ai.models.generateContentStream({
-                model: getGeminiAnswerModel() || 'gemini-3.5-flash-lite',
-                contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                config: { systemInstruction: systemPrompt, ...(mode === 'search' ? { tools: [{ googleSearch: {} }] } : {}) },
-            });
-            for await (const chunk of stream) {
-                if (chunk.text) {
-                    fullText += chunk.text;
-                    send({ text: fullText, done: false });
-                }
-            }
+            fullText = await streamGeminiWithRetry(
+                ai,
+                {
+                    model: getGeminiAnswerModel() || 'gemini-3.5-flash-lite',
+                    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                    config: { systemInstruction: systemPrompt, ...(mode === 'search' ? { tools: [{ googleSearch: {} }] } : {}) },
+                },
+                text => send({ text, done: false })
+            );
         } else if (mode === 'search') {
             throw new Error('Search needs a Gemini key');
         } else if (hasGroqKey()) {
@@ -169,7 +205,7 @@ async function reworkAnswer({ question, answer, mode, requestId }) {
         send({ text: fullText, done: true });
     } catch (error) {
         console.error('Error reworking answer:', error);
-        send({ done: true, error: error.message });
+        send({ done: true, error: friendlyErrorMessage(error) });
     }
 }
 
@@ -768,23 +804,15 @@ async function sendToGeminiText(transcription) {
 
         const systemPrompt = currentSystemPrompt || 'You are a helpful assistant.';
 
-        const response = await ai.models.generateContentStream({
-            model: answerModel,
-            contents: messages,
-            config: { systemInstruction: systemPrompt },
-        });
-
-        let fullText = '';
         let isFirst = true;
-
-        for await (const chunk of response) {
-            const chunkText = chunk.text;
-            if (chunkText) {
-                fullText += chunkText;
-                sendToRenderer(isFirst ? 'new-response' : 'update-response', fullText);
+        const fullText = await streamGeminiWithRetry(
+            ai,
+            { model: answerModel, contents: messages, config: { systemInstruction: systemPrompt } },
+            text => {
+                sendToRenderer(isFirst ? 'new-response' : 'update-response', text);
                 isFirst = false;
             }
-        }
+        );
 
         if (fullText.trim()) {
             groqConversationHistory.push({
@@ -803,7 +831,7 @@ async function sendToGeminiText(transcription) {
         sendToRenderer('update-status', 'Listening...');
     } catch (error) {
         console.error('Error calling Gemini text answer model:', error);
-        sendToRenderer('update-status', 'Gemini error: ' + error.message);
+        sendToRenderer('update-status', 'Gemini error: ' + friendlyErrorMessage(error));
     }
 }
 
