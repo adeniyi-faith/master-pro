@@ -140,11 +140,23 @@ function arrayBufferToBase64(buffer) {
     return btoa(binary);
 }
 
+// Notes typed by the user plus the text of any uploaded documents
+async function buildSessionContext(prefs) {
+    const notes = (prefs.customPrompt || '').trim();
+    let docs = '';
+    try {
+        docs = await ipcRenderer.invoke('documents:get-context');
+    } catch (error) {
+        console.error('Could not load documents:', error);
+    }
+    return [notes, docs].filter(Boolean).join('\n\n');
+}
+
 async function initializeGemini(profile = 'interview', language = 'en-US') {
     const apiKey = await storage.getApiKey();
     if (apiKey) {
         const prefs = await storage.getPreferences();
-        const success = await ipcRenderer.invoke('initialize-gemini', apiKey, prefs.customPrompt || '', profile, language);
+        const success = await ipcRenderer.invoke('initialize-gemini', apiKey, await buildSessionContext(prefs), profile, language);
         if (success) {
             cheatingDaddy.setStatus('Live');
         } else {
@@ -157,7 +169,7 @@ async function initializeLocal(profile = 'interview') {
     const prefs = await storage.getPreferences();
     const localLlmModel = prefs.localLlmModel || 'unsloth/Qwen3.5-4B-GGUF:Q4_K_M';
     const whisperModel = prefs.whisperModel || 'tiny.en';
-    const customPrompt = prefs.customPrompt || '';
+    const customPrompt = await buildSessionContext(prefs);
 
     const success = await ipcRenderer.invoke('initialize-local', localLlmModel, whisperModel, profile, customPrompt);
     if (success) {
@@ -182,7 +194,7 @@ async function initializeCloud(profile = 'interview') {
     }
 
     const prefs = await storage.getPreferences();
-    const success = await ipcRenderer.invoke('initialize-cloud', token, profile, prefs.customPrompt || '');
+    const success = await ipcRenderer.invoke('initialize-cloud', token, profile, await buildSessionContext(prefs));
     if (success) {
         cheatingDaddy.setStatus('Live');
         return true;

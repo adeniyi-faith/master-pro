@@ -11,26 +11,76 @@ export class AICustomizeView extends LitElement {
             .unified-wrap {
                 height: 100%;
             }
-            section.surface {
-                flex: 1;
-                display: flex;
-                flex-direction: column;
-            }
-            .form-grid {
-                flex: 1;
-                display: flex;
-                flex-direction: column;
-            }
-            .form-group.vertical {
-                flex: 1;
-                display: flex;
-                flex-direction: column;
-            }
             textarea.control {
-                flex: 1;
-                resize: none;
+                min-height: 140px;
                 overflow-y: auto;
-                min-height: 0;
+            }
+            .doc-actions {
+                display: flex;
+                align-items: center;
+                gap: var(--space-sm);
+                flex-wrap: wrap;
+            }
+            .doc-button {
+                background: var(--bg-elevated);
+                color: var(--text-primary);
+                border: 1px solid var(--border);
+                border-radius: var(--radius-sm);
+                padding: 8px 14px;
+                font-size: var(--font-size-sm);
+                cursor: pointer;
+            }
+            .doc-button:hover {
+                border-color: var(--border-strong);
+            }
+            .doc-button.small {
+                padding: 4px 10px;
+                font-size: var(--font-size-xs);
+            }
+            .drop-zone {
+                border: 1px dashed var(--border-strong);
+                border-radius: var(--radius-md);
+                padding: var(--space-md);
+                text-align: center;
+                color: var(--text-muted);
+                font-size: var(--font-size-sm);
+            }
+            .drop-zone.over {
+                border-color: var(--accent);
+                color: var(--text-primary);
+            }
+            .doc-list {
+                display: flex;
+                flex-direction: column;
+                gap: var(--space-xs, 6px);
+            }
+            .doc-row {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: var(--space-md);
+                background: var(--bg-elevated);
+                border: 1px solid var(--border);
+                border-radius: var(--radius-sm);
+                padding: 8px 12px;
+                font-size: var(--font-size-sm);
+                color: var(--text-primary);
+            }
+            .doc-name {
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            .doc-meta {
+                color: var(--text-muted);
+                font-size: var(--font-size-xs);
+                white-space: nowrap;
+            }
+            .doc-row-end {
+                display: flex;
+                align-items: center;
+                gap: var(--space-sm);
+                flex-shrink: 0;
             }
         `,
     ];
@@ -39,6 +89,9 @@ export class AICustomizeView extends LitElement {
         selectedProfile: { type: String },
         onProfileChange: { type: Function },
         _context: { state: true },
+        _documents: { state: true },
+        _message: { state: true },
+        _dragOver: { state: true },
     };
 
     constructor() {
@@ -46,7 +99,11 @@ export class AICustomizeView extends LitElement {
         this.selectedProfile = 'interview';
         this.onProfileChange = () => {};
         this._context = '';
+        this._documents = [];
+        this._message = '';
+        this._dragOver = false;
         this._loadFromStorage();
+        this._loadDocuments();
     }
 
     async _loadFromStorage() {
@@ -57,6 +114,50 @@ export class AICustomizeView extends LitElement {
         } catch (error) {
             console.error('Error loading AI customize storage:', error);
         }
+    }
+
+    get _ipc() {
+        return window.require('electron').ipcRenderer;
+    }
+
+    async _loadDocuments() {
+        try {
+            this._documents = await this._ipc.invoke('documents:list');
+        } catch (error) {
+            console.error('Error loading documents:', error);
+        }
+    }
+
+    _showResults(results) {
+        const failed = results.filter(r => !r.success);
+        const added = results.length - failed.length;
+        const parts = [];
+        if (added) parts.push(`Added ${added} document${added === 1 ? '' : 's'}.`);
+        failed.forEach(r => parts.push(`${r.name}: ${r.error}`));
+        this._message = parts.join(' ');
+    }
+
+    async _pickDocuments() {
+        const results = await this._ipc.invoke('documents:pick');
+        if (results.length) this._showResults(results);
+        await this._loadDocuments();
+    }
+
+    async _dropDocuments(e) {
+        e.preventDefault();
+        this._dragOver = false;
+        const paths = Array.from(e.dataTransfer.files)
+            .map(file => file.path)
+            .filter(Boolean);
+        if (!paths.length) return;
+        this._showResults(await this._ipc.invoke('documents:add-paths', paths));
+        await this._loadDocuments();
+    }
+
+    async _removeDocument(id) {
+        await this._ipc.invoke('documents:remove', id);
+        this._message = '';
+        await this._loadDocuments();
     }
 
     _handleProfileChange(e) {
@@ -118,6 +219,47 @@ export class AICustomizeView extends LitElement {
                         </div>
                     </section>
 
+                    <section class="surface">
+                        <div class="surface-title">Documents</div>
+                        <div class="surface-subtitle">
+                            Add your resume, the job description, notes or any other file. The AI reads them at the start of each session.
+                        </div>
+                        <div class="form-grid">
+                            <div
+                                class="drop-zone ${this._dragOver ? 'over' : ''}"
+                                @dragover=${e => {
+                                    e.preventDefault();
+                                    this._dragOver = true;
+                                }}
+                                @dragleave=${() => (this._dragOver = false)}
+                                @drop=${e => this._dropDocuments(e)}
+                            >
+                                <div class="doc-actions" style="justify-content: center;">
+                                    <button class="doc-button" @click=${() => this._pickDocuments()}>Choose files</button>
+                                    <span>or drop them here (PDF, DOCX, TXT, MD, CSV, JSON, up to 10 MB each)</span>
+                                </div>
+                            </div>
+                            ${this._message ? html`<div class="form-help">${this._message}</div>` : ''}
+                            <div class="doc-list">
+                                ${this._documents.length === 0
+                                    ? html`<div class="form-help">No documents added yet.</div>`
+                                    : this._documents.map(
+                                          doc => html`
+                                              <div class="doc-row">
+                                                  <span class="doc-name">${doc.name}</span>
+                                                  <span class="doc-row-end">
+                                                      <span class="doc-meta">
+                                                          ${doc.truncated ? 'trimmed to ' : ''}${doc.chars < 1000 ? doc.chars : Math.round(doc.chars / 1000) + 'k'} characters
+                                                      </span>
+                                                      <button class="doc-button small" @click=${() => this._removeDocument(doc.id)}>Remove</button>
+                                                  </span>
+                                              </div>
+                                          `
+                                      )}
+                            </div>
+                            <div class="form-help">Files stay on this computer. Their text is sent to your AI provider (Gemini or Groq) during a session. Very long files are trimmed.</div>
+                        </div>
+                    </section>
                 </div>
             </div>
         `;
