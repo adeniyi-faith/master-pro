@@ -1,5 +1,6 @@
 // renderer.js
 const { ipcRenderer } = require('electron');
+const { buildSessionContext: buildSessionPrompt } = require('./utils/sessionPrompt');
 
 let mediaStream = null;
 let screenshotInterval = null;
@@ -140,16 +141,15 @@ function arrayBufferToBase64(buffer) {
     return btoa(binary);
 }
 
-// Notes typed by the user plus the text of any uploaded documents
+// Session details, answer style, typed notes and the text of any uploaded documents
 async function buildSessionContext(prefs) {
-    const notes = (prefs.customPrompt || '').trim();
     let docs = '';
     try {
         docs = await ipcRenderer.invoke('documents:get-context');
     } catch (error) {
         console.error('Could not load documents:', error);
     }
-    return [notes, docs].filter(Boolean).join('\n\n');
+    return buildSessionPrompt(prefs, docs);
 }
 
 async function initializeGemini(profile = 'interview', language = 'en-US') {
