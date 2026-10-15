@@ -1,0 +1,41 @@
+# Builds the Windows app and publishes it as a downloadable GitHub release.
+# Run it from the Actions tab ("Build Windows download" > Run workflow), or push a tag that starts with "v".
+name: Build Windows download
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Package the app
+        run: npx electron-forge package --platform=win32 --arch=x64
+
+      - name: Zip the app
+        shell: pwsh
+        run: Compress-Archive -Path "out/SoftMaster PRO-win32-x64" -DestinationPath SoftMaster-PRO-windows-x64.zip
+
+      - name: Publish the release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $short = "${{ github.sha }}".Substring(0, 7)
+          $tag = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}" } else { "windows-build-$short" }
+          gh release create $tag SoftMaster-PRO-windows-x64.zip --title "SoftMaster PRO ($tag)" --notes "Windows download. Unzip, then double-click SoftMaster PRO.exe." --target "${{ github.sha }}"
