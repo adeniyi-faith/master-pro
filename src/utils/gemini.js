@@ -357,23 +357,36 @@ function sendQuestionToAnswerModel(transcription) {
 // Starts the Gemini text answer once the speaker has finished the question. The Live model starts
 // replying only after it decides the speaker stopped, so its first reply signal marks the end.
 function sendFinalTranscriptionToGemini() {
-    if (!getGeminiAnswerModel() || groqRequestStartedForTurn) {
+    if (!getGeminiAnswerModel()) {
         return;
     }
     const transcription = currentTranscription.trim();
     if (transcription === '') {
         return;
     }
+    // Start fresh so speech heard while the answer is written counts as the next question
+    currentTranscription = '';
     if (shouldSkipQuestion(transcription)) {
         return;
     }
-    groqRequestStartedForTurn = true;
     sendToGeminiText(transcription);
 }
 
-// If the speaker goes quiet for this long after the last words were heard, the question is treated as ended
-// even when the Live model has not replied (it can choose to stay silent).
-const QUESTION_END_SILENCE_MS = 2200;
+// How long to wait in silence before treating the question as finished. People pause to think in the middle of
+// long questions, so the wait is generous, and longer still when the last word is one that rarely ends a
+// sentence ("and", "the", "because"). It is shorter when the question clearly ended with a question mark.
+const QUESTION_END_SILENCE_MS = 3000;
+const QUESTION_OPEN_END_SILENCE_MS = 5500;
+const QUESTION_CLEAR_END_SILENCE_MS = 2000;
+const OPEN_ENDING_WORDS = /\b(and|or|but|so|because|that|which|who|when|where|if|the|a|an|to|of|with|for|in|on|about|how|what|why|like|then|also|is|are|was|were|my|your|our|their|it|you|i|we|can|could|would|should|do|does|did|have|has|had)$/i;
+
+function getQuestionEndWaitMs(text) {
+    const trimmed = (text || '').trim();
+    if (/\?$/.test(trimmed)) return QUESTION_CLEAR_END_SILENCE_MS;
+    if (OPEN_ENDING_WORDS.test(trimmed.replace(/[.,;:!"')\s]+$/, ''))) return QUESTION_OPEN_END_SILENCE_MS;
+    return QUESTION_END_SILENCE_MS;
+}
+
 let questionEndTimer = null;
 
 function clearQuestionEndTimer() {
@@ -394,11 +407,11 @@ function sendFinalTranscription() {
 function restartQuestionEndTimer() {
     clearQuestionEndTimer();
     if (!usesTextAnswers()) return;
-    questionEndTimer = setTimeout(sendFinalTranscription, QUESTION_END_SILENCE_MS);
+    questionEndTimer = setTimeout(sendFinalTranscription, getQuestionEndWaitMs(currentTranscription));
 }
 
 function sendFinalTranscriptionToGroq() {
-    if (getGeminiAnswerModel() || !hasGroqKey() || groqRequestStartedForTurn) {
+    if (getGeminiAnswerModel() || !hasGroqKey()) {
         return;
     }
 
@@ -406,11 +419,11 @@ function sendFinalTranscriptionToGroq() {
     if (transcription === '') {
         return;
     }
+    currentTranscription = '';
 
     if (shouldSkipQuestion(transcription)) {
         return;
     }
-    groqRequestStartedForTurn = true;
     sendToGroq(transcription);
 }
 
@@ -868,14 +881,20 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                         restartQuestionEndTimer();
                     }
 
-                    // The Live model replying (or finishing) means the question has ended
+                    // With a text answer model, only our own silence timer decides the question has ended: the Live
+                    // model often "replies" after a short pause in the middle of a long question. Without one, the
+                    // Live model replying (or finishing) is the signal.
                     if (
                         message.serverContent?.modelTurn ||
                         message.serverContent?.outputTranscription ||
                         message.serverContent?.generationComplete ||
                         message.serverContent?.turnComplete
                     ) {
-                        sendFinalTranscription();
+                        if (!usesTextAnswers()) {
+                            sendFinalTranscription();
+                        } else if (!questionEndTimer && currentTranscription.trim() !== '') {
+                            restartQuestionEndTimer();
+                        }
                     }
 
                     if (!usesTextAnswers() && message.serverContent?.outputTranscription?.text) {
@@ -888,7 +907,7 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                         sendToRenderer(isFirstChunk ? 'new-response' : 'update-response', messageBuffer);
                     }
 
-                    if (message.serverContent?.generationComplete) {
+                    if (message.serverContent?.generationComplete && !usesTextAnswers()) {
                         if (currentTranscription.trim() !== '') {
                             if (!usesTextAnswers() && messageBuffer.trim() !== '') {
                                 saveConversationTurn(currentTranscription, messageBuffer);
@@ -899,11 +918,13 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                     }
 
                     if (message.serverContent?.turnComplete) {
-                        clearQuestionEndTimer();
-                        currentTranscription = '';
                         messageBuffer = '';
-                        groqRequestStartedForTurn = false;
-                        sendToRenderer('update-status', 'Listening...');
+                        if (!usesTextAnswers()) {
+                            clearQuestionEndTimer();
+                            currentTranscription = '';
+                            groqRequestStartedForTurn = false;
+                            sendToRenderer('update-status', 'Listening...');
+                        }
                     }
                 },
                 onerror: function (e) {

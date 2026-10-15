@@ -247,6 +247,7 @@ export class AppHeader extends LitElement {
             customize: 'Customize',
             help: 'Help & Shortcuts',
             history: 'Conversation History',
+            errors: 'Error log',
             advanced: 'Advanced Tools',
             assistant: 'SoftMaster PRO',
         };
@@ -267,7 +268,7 @@ export class AppHeader extends LitElement {
     }
 
     isNavigationView() {
-        const navigationViews = ['customize', 'help', 'history', 'advanced'];
+        const navigationViews = ['customize', 'help', 'history', 'errors', 'advanced'];
         return navigationViews.includes(this.currentView);
     }
 
