@@ -182,6 +182,7 @@ export class CustomizeView extends LitElement {
         layoutMode: { type: String },
         keybinds: { type: Object },
         googleSearchEnabled: { type: Boolean },
+        englishOnly: { type: Boolean },
         backgroundTransparency: { type: Number },
         fontSize: { type: Number },
         endOfSpeech: { type: String },
@@ -208,6 +209,7 @@ export class CustomizeView extends LitElement {
         this.onImageQualityChange = () => {};
         this.onLayoutModeChange = () => {};
         this.googleSearchEnabled = true;
+        this.englishOnly = false;
         this.isClearing = false;
         this.isRestoring = false;
         this.clearStatusMessage = '';
@@ -229,6 +231,7 @@ export class CustomizeView extends LitElement {
         try {
             const [prefs, keybinds] = await Promise.all([cheatingDaddy.storage.getPreferences(), cheatingDaddy.storage.getKeybinds()]);
             this.googleSearchEnabled = prefs.googleSearchEnabled ?? true;
+            this.englishOnly = prefs.englishOnly ?? false;
             this.backgroundTransparency = prefs.backgroundTransparency ?? 0.8;
             this.fontSize = prefs.fontSize ?? 20;
             this.audioMode = prefs.audioMode ?? 'speaker_only';
@@ -522,6 +525,7 @@ export class CustomizeView extends LitElement {
             this.fontSize = defaults.fontSize;
             this.backgroundTransparency = defaults.backgroundTransparency;
             this.googleSearchEnabled = defaults.googleSearchEnabled;
+            this.englishOnly = false;
             this.customPrompt = defaults.customPrompt;
             this.theme = defaults.theme;
 
@@ -626,6 +630,22 @@ export class CustomizeView extends LitElement {
                         <select class="control" .value=${this.selectedLanguage} @change=${this.handleLanguageSelect}>
                             ${this.getLanguages().map(language => html`<option value=${language.value}>${language.name}</option>`)}
                         </select>
+                    </div>
+                    <div class="form-group">
+                        <div class="toggle-row">
+                            <input
+                                class="toggle-input"
+                                id="englishOnly"
+                                type="checkbox"
+                                .checked=${this.englishOnly}
+                                @change=${async e => {
+                                    this.englishOnly = e.target.checked;
+                                    await cheatingDaddy.storage.updatePreference('englishOnly', this.englishOnly);
+                                }}
+                            />
+                            <label class="toggle-label" for="englishOnly">Only answer English</label>
+                        </div>
+                        <div class="form-help">Ignores background talk in other languages (for example a TV or a person nearby) so it does not get an answer.</div>
                     </div>
                 </div>
             </section>

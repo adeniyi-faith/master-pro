@@ -68,6 +68,8 @@ function tidyAnswer(text) {
     return text.replace(wrapped, '').replace(/["”]?\s*\*{2,3}\s*$/, '').trim();
 }
 
+const { looksLikeEnglish } = require('./languageFilter');
+
 function sendToRenderer(channel, data) {
     const windows = BrowserWindow.getAllWindows();
     if (windows.length > 0) {
@@ -83,6 +85,7 @@ let lastQuestionKey = '';
 let lastQuestionAt = 0;
 
 function shouldSkipQuestion(text) {
+    if (getPreferences().englishOnly === true && !looksLikeEnglish(text)) return true;
     const key = text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
     if (key.split(' ').filter(Boolean).length < MIN_QUESTION_WORDS) return true;
     if (key === lastQuestionKey && Date.now() - lastQuestionAt < REPEAT_QUESTION_WINDOW_MS) return true;
