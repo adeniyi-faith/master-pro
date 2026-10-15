@@ -25,6 +25,8 @@ const DEFAULT_PREFERENCES = {
     company: '',
     jobDescription: '',
     answerTone: 'default',
+    customTone: '',
+    questionTypeTones: {},
     answerFormat: 'default',
     useStarMethod: false,
     autoQuestionType: true,

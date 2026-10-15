@@ -1,3 +1,5 @@
+const { getToneInstruction } = require('./tones');
+
 // Default guidance for each kind of interview question. Users can edit any of
 // these in the app (Session Setup > Question Types); edits are saved as
 // overrides and "Reset" goes back to the text below.
@@ -65,7 +67,11 @@ function getTypePrompt(type, overrides = {}) {
 function buildQuestionGuidance(prefs = {}) {
     if (prefs.autoQuestionType === false) return '';
     const overrides = prefs.questionTypePrompts || {};
-    const lines = DEFAULT_QUESTION_TYPES.map(type => `- ${type.label}: ${getTypePrompt(type, overrides)}`);
+    const tones = prefs.questionTypeTones || {};
+    const lines = DEFAULT_QUESTION_TYPES.map(type => {
+        const tone = getToneInstruction(tones[type.id], prefs.customTone);
+        return `- ${type.label}: ${getTypePrompt(type, overrides)}${tone ? ` Tone for this type: ${tone}` : ''}`;
+    });
     return [
         'Question types',
         'Before answering, quietly work out which type of question was asked, then follow the guidance for that type. Never mention the type in your answer.',
