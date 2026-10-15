@@ -111,6 +111,28 @@ export class HistoryView extends LitElement {
                 align-items: center;
             }
 
+            .notes-actions {
+                display: flex;
+                gap: var(--space-md);
+                margin-bottom: var(--space-sm);
+            }
+
+            .notes-btn {
+                border: 1px solid var(--border);
+                border-radius: var(--radius-sm, 6px);
+                padding: 6px 12px;
+                color: var(--text-primary);
+            }
+
+            .notes-btn[disabled] {
+                opacity: 0.5;
+                cursor: default;
+            }
+
+            .notes-text {
+                line-height: 1.5;
+            }
+
             .back-btn svg {
                 cursor: pointer;
             }
@@ -265,6 +287,9 @@ export class HistoryView extends LitElement {
         loading: { type: Boolean },
         activeTab: { type: String },
         searchQuery: { type: String },
+        notesBusy: { type: Boolean },
+        notesError: { type: String },
+        notesCopied: { type: Boolean },
     };
 
     constructor() {
@@ -275,6 +300,9 @@ export class HistoryView extends LitElement {
         this.loading = true;
         this.activeTab = 'conversation';
         this.searchQuery = '';
+        this.notesBusy = false;
+        this.notesError = '';
+        this.notesCopied = false;
         this.loadSessions();
     }
 
@@ -298,6 +326,7 @@ export class HistoryView extends LitElement {
                 this.selectedSession = session;
                 this.selectedSessionId = sessionId;
                 this.activeTab = 'conversation';
+                this.notesError = '';
                 this.requestUpdate();
             }
         } catch (error) {
@@ -396,6 +425,8 @@ export class HistoryView extends LitElement {
             `);
         }
 
+        if (this.activeTab === 'notes') return this.renderNotes();
+
         if (this.activeTab === 'screen') {
             const screen = this.selectedSession.screenAnalysisHistory || [];
             if (!screen.length) return html`<div class="empty">No screen analysis data.</div>`;
@@ -426,6 +457,48 @@ export class HistoryView extends LitElement {
                     <span class="context-value">${prompt}</span>
                 </div>
             ` : ''}
+        `;
+    }
+
+    async generateNotes() {
+        if (this.notesBusy) return;
+        this.notesBusy = true;
+        this.notesError = '';
+        try {
+            const result = await window.require('electron').ipcRenderer.invoke('generate-session-notes', this.selectedSessionId);
+            if (result.success) this.selectedSession = { ...this.selectedSession, notes: result.notes };
+            else this.notesError = result.error || 'Could not write the notes.';
+        } catch (error) {
+            this.notesError = error.message;
+        } finally {
+            this.notesBusy = false;
+        }
+    }
+
+    async copyNotes() {
+        try {
+            await navigator.clipboard.writeText(this.selectedSession.notes.text);
+            this.notesCopied = true;
+            setTimeout(() => { this.notesCopied = false; }, 1500);
+        } catch (error) {
+            this.notesError = 'Could not copy the notes.';
+        }
+    }
+
+    renderNotes() {
+        const notes = this.selectedSession.notes;
+        const hasConversation = (this.selectedSession.conversationHistory || []).length > 0;
+        return html`
+            <div class="notes-actions">
+                <button class="back-btn notes-btn" ?disabled=${this.notesBusy || !hasConversation} @click=${this.generateNotes}>
+                    ${this.notesBusy ? 'Writing notes...' : notes ? 'Write again' : 'Write notes'}
+                </button>
+                ${notes ? html`<button class="back-btn notes-btn" @click=${this.copyNotes}>${this.notesCopied ? 'Copied' : 'Copy'}</button>` : ''}
+            </div>
+            ${this.notesError ? html`<div class="empty">${this.notesError}</div>` : ''}
+            ${notes
+                ? html`<div class="message-body notes-text">${notes.text}</div><div class="message-meta">Written ${this.formatTimestamp(notes.generatedAt)} by ${notes.model}</div>`
+                : html`<div class="empty">${hasConversation ? 'No notes yet. Choose "Write notes" to summarise this session.' : 'No conversation in this session to summarise.'}</div>`}
         `;
     }
 
@@ -486,6 +559,9 @@ export class HistoryView extends LitElement {
                 </button>
                 <button class="tab-btn ${this.activeTab === 'screen' ? 'active' : ''}" @click=${() => { this.activeTab = 'screen'; }}>
                     Screen (${screenCount})
+                </button>
+                <button class="tab-btn ${this.activeTab === 'notes' ? 'active' : ''}" @click=${() => { this.activeTab = 'notes'; }}>
+                    Notes
                 </button>
                 <button class="tab-btn ${this.activeTab === 'context' ? 'active' : ''}" @click=${() => { this.activeTab = 'context'; }}>
                     Context

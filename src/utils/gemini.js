@@ -3,7 +3,7 @@ const { BrowserWindow, ipcMain } = require('electron');
 const { spawn } = require('child_process');
 const { saveDebugAudio } = require('../audioUtils');
 const { getSystemPrompt } = require('./prompts');
-const { getAvailableModel, incrementLimitCount, getApiKey, getGroqApiKey, incrementCharUsage, getConfig, getPreferences } = require('../storage');
+const { getSession, saveSession, getAvailableModel, incrementLimitCount, getApiKey, getGroqApiKey, incrementCharUsage, getConfig, getPreferences } = require('../storage');
 const { connectCloud, sendCloudAudio, sendCloudText, sendCloudImage, closeCloud, isCloudActive, setOnTurnComplete } = require('./cloud');
 const { startTransportLog, logTransportEvent, closeTransportLog } = require('./transportLogger');
 
@@ -1010,6 +1010,54 @@ async function sendAudioToGemini(base64Data, geminiSessionRef) {
     }
 }
 
+// Writes post-session notes (what was asked, how it went, what to study) from the saved conversation
+async function generateSessionNotes(sessionId) {
+    const apiKey = getApiKey();
+    if (!apiKey) {
+        return { success: false, error: 'Add your Gemini API key in Settings first.' };
+    }
+    const session = getSession(sessionId);
+    const turns = session?.conversationHistory || [];
+    if (!turns.length) {
+        return { success: false, error: 'This session has no conversation to summarise.' };
+    }
+
+    // Keep the most recent part if the session is very long
+    const MAX_CHARS = 60000;
+    let transcript = turns.map((turn, i) => `Q${i + 1}: ${turn.transcription}\nAnswer given by the assistant: ${turn.ai_response}`).join('\n\n');
+    if (transcript.length > MAX_CHARS) transcript = transcript.slice(-MAX_CHARS);
+
+    const prompt = `Below is the record of a live session (such as an interview). Each item has a question that was heard and the answer the assistant suggested. Write short post-session notes in plain text, with these headings and nothing else:
+
+Summary: two or three sentences on how the session went.
+Questions asked: a numbered list, one line each, with a few words on the answer given.
+What went well:
+What to improve:
+Topics to study before next time:
+Follow-ups: things to send, ask or do after the session.
+
+Use only what is in the record. If a heading has nothing to say, write "None". Do not use markdown symbols such as ** or #.
+
+Record:
+${transcript}`;
+
+    const model = getAvailableModel();
+    try {
+        const ai = new GoogleGenAI({ apiKey });
+        const response = await ai.models.generateContent({ model, contents: prompt });
+        const text = (response.text || '').trim();
+        if (!text) {
+            return { success: false, error: 'The AI returned no notes. Try again.' };
+        }
+        const notes = { text, model, generatedAt: Date.now() };
+        saveSession(sessionId, { notes });
+        return { success: true, notes };
+    } catch (error) {
+        console.error('Error generating session notes:', error);
+        return { success: false, error: error.message };
+    }
+}
+
 async function sendImageToGeminiHttp(base64Data, prompt) {
     // Get available model based on rate limits
     const model = getAvailableModel();
@@ -1328,6 +1376,10 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
             console.error('Error closing session:', error);
             return { success: false, error: error.message };
         }
+    });
+
+    ipcMain.handle('generate-session-notes', async (event, sessionId) => {
+        return generateSessionNotes(sessionId);
     });
 
     // Conversation history IPC handlers

@@ -10,6 +10,7 @@ const DEFAULT_CONFIG = {
     onboarded: false,
     layout: 'normal',
     geminiLiveModel: 'gemini-3.1-flash-live-preview',
+    geminiScreenshotModel: 'gemini-3.8-flash',
     groqModel: 'qwen/qwen3.6-27b',
     groqImageModel: 'qwen/qwen3.6-27b',
     disableGroqThinking: true,
@@ -121,55 +122,60 @@ function writeJsonFile(filePath, data) {
     }
 }
 
-// Check if we need to reset (no configVersion or wrong version)
-function needsReset() {
-    const configPath = getConfigPath();
-    if (!fs.existsSync(configPath)) {
-        return true;
+// Makes sure the config folder and its files exist, without ever deleting what the user has.
+// A missing file is created with defaults. A file that cannot be read is moved aside
+// (renamed to ".broken-<time>") so it can be recovered, then replaced with defaults.
+function setUpConfigDir() {
+    fs.mkdirSync(getConfigDir(), { recursive: true });
+    fs.mkdirSync(getHistoryDir(), { recursive: true });
+
+    const files = [
+        [getConfigPath(), DEFAULT_CONFIG],
+        [getCredentialsPath(), DEFAULT_CREDENTIALS],
+        [getPreferencesPath(), DEFAULT_PREFERENCES],
+    ];
+    for (const [filePath, defaults] of files) {
+        if (!fs.existsSync(filePath)) {
+            writeJsonFile(filePath, defaults);
+            continue;
+        }
+        try {
+            JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        } catch (error) {
+            const backup = `${filePath}.broken-${Date.now()}`;
+            try {
+                fs.renameSync(filePath, backup);
+                console.warn(`${filePath} could not be read; kept a copy at ${backup}`);
+            } catch (renameError) {
+                console.error('Could not set aside the unreadable file:', renameError.message);
+            }
+            writeJsonFile(filePath, defaults);
+        }
     }
 
+    // Record the settings version. Existing settings are kept as they are.
     try {
-        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-        return !config.configVersion || config.configVersion !== CONFIG_VERSION;
-    } catch {
-        return true;
+        const config = JSON.parse(fs.readFileSync(getConfigPath(), 'utf8'));
+        if (config.configVersion !== CONFIG_VERSION) {
+            writeJsonFile(getConfigPath(), { ...config, configVersion: CONFIG_VERSION });
+        }
+    } catch (error) {
+        console.warn('Could not record the settings version:', error.message);
     }
 }
 
-// Wipe and reinitialize the config directory
+// Deletes everything and starts over. Only used when the user chooses "clear all data".
 function resetConfigDir() {
     const configDir = getConfigDir();
-
-    console.log('Resetting config directory...');
-
-    // Remove existing directory if it exists
     if (fs.existsSync(configDir)) {
         fs.rmSync(configDir, { recursive: true, force: true });
     }
-
-    // Create fresh directory structure
-    fs.mkdirSync(configDir, { recursive: true });
-    fs.mkdirSync(getHistoryDir(), { recursive: true });
-
-    // Initialize with defaults
-    writeJsonFile(getConfigPath(), DEFAULT_CONFIG);
-    writeJsonFile(getCredentialsPath(), DEFAULT_CREDENTIALS);
-    writeJsonFile(getPreferencesPath(), DEFAULT_PREFERENCES);
-
-    console.log('Config directory initialized with defaults');
+    setUpConfigDir();
 }
 
 // Initialize storage - call this on app startup
 function initializeStorage() {
-    if (needsReset()) {
-        resetConfigDir();
-    } else {
-        // Ensure history directory exists
-        const historyDir = getHistoryDir();
-        if (!fs.existsSync(historyDir)) {
-            fs.mkdirSync(historyDir, { recursive: true });
-        }
-    }
+    setUpConfigDir();
 }
 
 // ============ CONFIG ============
@@ -368,18 +374,9 @@ function incrementCharUsage(provider, model, charCount) {
     return todayEntry;
 }
 
+// The Gemini model used to answer screenshots and to write session notes
 function getAvailableModel() {
-    const todayLimits = getTodayLimits();
-
-    // RPD limits: flash = 20, flash-lite = 20
-    // After both exhausted, fall back to flash (for paid API users)
-    if (todayLimits.flash.count < 20) {
-        return 'gemini-2.5-flash';
-    } else if (todayLimits.flashLite.count < 20) {
-        return 'gemini-2.5-flash-lite';
-    }
-
-    return 'gemini-2.5-flash'; // Default to flash for paid API users
+    return getConfig().geminiScreenshotModel || DEFAULT_CONFIG.geminiScreenshotModel;
 }
 
 function getModelForToday() {
@@ -422,6 +419,8 @@ function saveSession(sessionId, data) {
         // Conversation data
         conversationHistory: data.conversationHistory || existingSession?.conversationHistory || [],
         screenAnalysisHistory: data.screenAnalysisHistory || existingSession?.screenAnalysisHistory || [],
+        // Post-session notes, written on request
+        notes: data.notes || existingSession?.notes || null,
     };
     return writeJsonFile(sessionPath, sessionData);
 }
