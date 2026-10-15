@@ -7,6 +7,35 @@ let mouseEventsIgnored = false;
 const DEFAULT_MAIN_WINDOW_SIZE = { width: 1100, height: 800 };
 const MIN_WINDOW_SIZE = { width: 700, height: 320 };
 
+// New window position and size for a mouse drag of (dx, dy). With no edge the window is moved;
+// with an edge such as 'right', 'bottom-left' or 'top' the window is resized from that edge.
+function computeDraggedBounds(start, dx, dy, edge) {
+    if (!edge) {
+        return { x: start.x + dx, y: start.y + dy, width: start.width, height: start.height };
+    }
+    let { x, y, width, height } = start;
+    if (edge.includes('right')) width = start.width + dx;
+    if (edge.includes('bottom')) height = start.height + dy;
+    if (edge.includes('left')) {
+        width = start.width - dx;
+        x = start.x + dx;
+    }
+    if (edge.includes('top')) {
+        height = start.height - dy;
+        y = start.y + dy;
+    }
+    // Never go below the minimum size; when growing from the left or top, keep the opposite edge fixed
+    if (width < MIN_WINDOW_SIZE.width) {
+        if (edge.includes('left')) x -= MIN_WINDOW_SIZE.width - width;
+        width = MIN_WINDOW_SIZE.width;
+    }
+    if (height < MIN_WINDOW_SIZE.height) {
+        if (edge.includes('top')) y -= MIN_WINDOW_SIZE.height - height;
+        height = MIN_WINDOW_SIZE.height;
+    }
+    return { x: Math.round(x), y: Math.round(y), width: Math.round(width), height: Math.round(height) };
+}
+
 function createWindow(sendToRenderer, geminiSessionRef) {
     let windowWidth = DEFAULT_MAIN_WINDOW_SIZE.width;
     let windowHeight = DEFAULT_MAIN_WINDOW_SIZE.height;
@@ -308,6 +337,32 @@ function setupWindowIpcHandlers(mainWindow, sendToRenderer, geminiSessionRef) {
         }
     });
 
+    // Moving and resizing the window with the mouse. The renderer only says when a drag starts or
+    // ends; the cursor position is read here, so it keeps working when the cursor leaves the window.
+    let dragTimer = null;
+    const stopDrag = () => {
+        if (dragTimer) {
+            clearInterval(dragTimer);
+            dragTimer = null;
+        }
+    };
+    const startDrag = (edge = null) => {
+        stopDrag();
+        if (mainWindow.isDestroyed() || mainWindow.isMaximized() || mainWindow.isFullScreen()) return;
+        const startCursor = screen.getCursorScreenPoint();
+        const startBounds = mainWindow.getBounds();
+        dragTimer = setInterval(() => {
+            if (mainWindow.isDestroyed()) return stopDrag();
+            const cursor = screen.getCursorScreenPoint();
+            const next = computeDraggedBounds(startBounds, cursor.x - startCursor.x, cursor.y - startCursor.y, edge);
+            mainWindow.setBounds(next);
+        }, 16);
+    };
+    ipcMain.on('window-drag-start', () => startDrag(null));
+    ipcMain.on('window-resize-start', (event, edge) => startDrag(typeof edge === 'string' ? edge : null));
+    ipcMain.on('window-drag-end', stopDrag);
+    mainWindow.on('closed', stopDrag);
+
     ipcMain.handle('window-minimize', () => {
         if (!mainWindow.isDestroyed()) {
             mainWindow.minimize();
@@ -341,6 +396,7 @@ function setupWindowIpcHandlers(mainWindow, sendToRenderer, geminiSessionRef) {
 
 module.exports = {
     createWindow,
+    computeDraggedBounds,
     getDefaultKeybinds,
     updateGlobalShortcuts,
     setupWindowIpcHandlers,
