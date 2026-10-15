@@ -890,7 +890,7 @@ export class CheatingDaddyApp extends LitElement {
         return html`
             <div class="sidebar ${this._isLiveMode() ? 'hidden' : ''}">
                 <div class="sidebar-brand">
-                    <h1>Cheating Daddy</h1>
+                    <h1>SoftMaster PRO</h1>
                 </div>
                 <nav class="sidebar-nav">
                     ${items.map(
