@@ -92,7 +92,37 @@ function addMoveGrip() {
     collapse.style.cssText =
         'cursor:pointer;color:#ddd;background:transparent;border:0;font:700 14px sans-serif;padding:0 8px;line-height:16px';
     collapse.addEventListener('click', () => ipcRenderer.send('window-collapse'));
-    bar.append(grip, collapse);
+
+    const buttonStyle = 'cursor:pointer;color:#ddd;background:transparent;border:0;font:11px sans-serif;padding:0 8px;line-height:16px';
+    const hide = document.createElement('button');
+    hide.title = 'Hide the app completely (press the show/hide shortcut, Ctrl+\\ by default, to bring it back)';
+    hide.textContent = 'hide';
+    hide.style.cssText = buttonStyle;
+    hide.addEventListener('click', () => ipcRenderer.send('window-hide'));
+
+    // Quitting takes two clicks so it cannot happen by accident in the middle of a session
+    const quit = document.createElement('button');
+    const quitIdle = () => {
+        quit.textContent = '✕';
+        quit.title = 'Quit the app completely';
+        quit.style.cssText = buttonStyle + ';font-weight:700;font-size:13px';
+    };
+    let quitTimer = null;
+    quitIdle();
+    quit.addEventListener('click', () => {
+        if (quitTimer) {
+            ipcRenderer.send('app-quit');
+            return;
+        }
+        quit.textContent = 'Quit?';
+        quit.title = 'Click again to quit';
+        quit.style.cssText = buttonStyle + ';color:#fff;background:#d33;border-radius:8px;font-weight:700';
+        quitTimer = setTimeout(() => {
+            quitTimer = null;
+            quitIdle();
+        }, 3000);
+    });
+    bar.append(grip, collapse, hide, quit);
     document.body.appendChild(bar);
 }
 
