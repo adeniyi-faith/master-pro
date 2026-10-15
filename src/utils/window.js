@@ -1,4 +1,4 @@
-const { BrowserWindow, globalShortcut, ipcMain, screen } = require('electron');
+const { app, BrowserWindow, globalShortcut, ipcMain, screen } = require('electron');
 const path = require('node:path');
 const storage = require('../storage');
 
@@ -413,6 +413,8 @@ function setupWindowIpcHandlers(mainWindow, sendToRenderer, geminiSessionRef) {
         restore();
     };
     ipcMain.on('window-collapse', collapseToBubble);
+    ipcMain.on('window-hide', () => mainWindow.hide());
+    ipcMain.on('app-quit', () => app.quit());
     ipcMain.on('window-expand', expandFromBubble);
     ipcMain.on('window-drag-start', () => startDrag(null));
     ipcMain.on('window-resize-start', (event, edge) => startDrag(typeof edge === 'string' ? edge : null));

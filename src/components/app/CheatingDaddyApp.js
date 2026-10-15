@@ -427,20 +427,6 @@ export class CheatingDaddyApp extends LitElement {
         try {
             this._localVersion = await cheatingDaddy.getVersion();
             this.requestUpdate();
-
-            const res = await fetch('https://raw.githubusercontent.com/sohzm/cheating-daddy/refs/heads/master/package.json');
-            if (!res.ok) return;
-            const remote = await res.json();
-            const remoteVersion = remote.version;
-
-            const toNum = v => v.split('.').map(Number);
-            const [rMaj, rMin, rPatch] = toNum(remoteVersion);
-            const [lMaj, lMin, lPatch] = toNum(this._localVersion);
-
-            if (rMaj > lMaj || (rMaj === lMaj && rMin > lMin) || (rMaj === lMaj && rMin === lMin && rPatch > lPatch)) {
-                this._updateAvailable = true;
-                this.requestUpdate();
-            }
         } catch (e) {
             // silently ignore
         }

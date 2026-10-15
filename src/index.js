@@ -33,6 +33,10 @@ app.whenReady().then(async () => {
     setupGeneralIpcHandlers();
 });
 
+app.on('before-quit', () => {
+    stopMacOSAudioCapture();
+});
+
 app.on('window-all-closed', () => {
     stopMacOSAudioCapture();
     if (process.platform !== 'darwin') {
