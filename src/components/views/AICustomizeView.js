@@ -123,6 +123,7 @@ export class AICustomizeView extends LitElement {
         _prefs: { state: true },
         _autoType: { state: true },
         _typeEdits: { state: true },
+        _typeTones: { state: true },
         _documents: { state: true },
         _message: { state: true },
         _dragOver: { state: true },
@@ -133,9 +134,10 @@ export class AICustomizeView extends LitElement {
         this.selectedProfile = 'interview';
         this.onProfileChange = () => {};
         this._context = '';
-        this._prefs = { company: '', jobDescription: '', answerTone: 'default', answerFormat: 'default', useStarMethod: false };
+        this._prefs = { company: '', jobDescription: '', answerTone: 'default', customTone: '', answerFormat: 'default', useStarMethod: false };
         this._autoType = true;
         this._typeEdits = {};
+        this._typeTones = {};
         this._documents = [];
         this._message = '';
         this._dragOver = false;
@@ -149,10 +151,12 @@ export class AICustomizeView extends LitElement {
             this._context = prefs.customPrompt || '';
             this._autoType = prefs.autoQuestionType !== false;
             this._typeEdits = prefs.questionTypePrompts || {};
+            this._typeTones = prefs.questionTypeTones || {};
             this._prefs = {
                 company: prefs.company || '',
                 jobDescription: prefs.jobDescription || '',
                 answerTone: prefs.answerTone || 'default',
+                customTone: prefs.customTone || '',
                 answerFormat: prefs.answerFormat || 'default',
                 useStarMethod: prefs.useStarMethod === true,
             };
@@ -229,13 +233,23 @@ export class AICustomizeView extends LitElement {
         await cheatingDaddy.storage.updatePreference('questionTypePrompts', edits);
     }
 
+    async _saveTypeTone(type, tone) {
+        const tones = { ...this._typeTones };
+        if (!tone) delete tones[type.id];
+        else tones[type.id] = tone;
+        this._typeTones = tones;
+        await cheatingDaddy.storage.updatePreference('questionTypeTones', tones);
+    }
+
     async _resetTypePrompt(type) {
         await this._saveTypePrompt(type, '');
     }
 
     async _resetAllTypePrompts() {
         this._typeEdits = {};
+        this._typeTones = {};
         await cheatingDaddy.storage.updatePreference('questionTypePrompts', {});
+        await cheatingDaddy.storage.updatePreference('questionTypeTones', {});
     }
 
     async _saveContext(val) {
@@ -373,8 +387,23 @@ export class AICustomizeView extends LitElement {
                                     <option value="default">Default</option>
                                     <option value="simple">Simple</option>
                                     <option value="formal">Formal</option>
+                                    <option value="custom">Custom (write your own)</option>
                                 </select>
                             </div>
+                            ${this._prefs.answerTone === 'custom'
+                                ? html`
+                                      <div class="form-group" style="flex-direction: column; align-items: stretch;">
+                                          <label class="form-label">Your tone</label>
+                                          <textarea
+                                              class="control"
+                                              placeholder="e.g. Warm and confident, short sentences, no buzzwords"
+                                              .value=${this._prefs.customTone}
+                                              @change=${e => this._savePref('customTone', e.target.value)}
+                                          ></textarea>
+                                          <div class="form-help">Describe how the answers should sound. Question types can also use this tone.</div>
+                                      </div>
+                                  `
+                                : ''}
                             <div class="form-group">
                                 <label class="form-label">Format</label>
                                 <select class="control" .value=${this._prefs.answerFormat} @change=${e => this._savePref('answerFormat', e.target.value)}>
@@ -423,6 +452,19 @@ export class AICustomizeView extends LitElement {
                                                       ${edited
                                                           ? html`<button class="doc-button small" @click=${() => this._resetTypePrompt(type)}>Reset</button>`
                                                           : ''}
+                                                  </div>
+                                                  <div class="form-group">
+                                                      <label class="form-label">Tone for this type</label>
+                                                      <select
+                                                          class="control"
+                                                          .value=${this._typeTones[type.id] || ''}
+                                                          @change=${e => this._saveTypeTone(type, e.target.value)}
+                                                      >
+                                                          <option value="">Same as overall tone</option>
+                                                          <option value="simple">Simple</option>
+                                                          <option value="formal">Formal</option>
+                                                          <option value="custom">Custom (from Answer Preferences)</option>
+                                                      </select>
                                                   </div>
                                                   <textarea
                                                       class="control"
