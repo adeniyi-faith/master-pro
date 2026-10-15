@@ -355,9 +355,50 @@ function setupWindowIpcHandlers(mainWindow, sendToRenderer, geminiSessionRef) {
             if (mainWindow.isDestroyed()) return stopDrag();
             const cursor = screen.getCursorScreenPoint();
             const next = computeDraggedBounds(startBounds, cursor.x - startCursor.x, cursor.y - startCursor.y, edge);
-            mainWindow.setBounds(next);
+            if (edge) {
+                mainWindow.setBounds(next);
+            } else {
+                // A plain move only changes the position. Setting the size again on every step makes
+                // the window grow or shrink by a pixel on screens with display scaling (common on Windows).
+                mainWindow.setPosition(next.x, next.y);
+            }
         }, 16);
     };
+
+    // Temporary minimize: shrink to a small round bubble that stays on top. Clicking it brings the window back.
+    const BUBBLE_SIZE = 64;
+    let savedBounds = null;
+    const collapseToBubble = () => {
+        if (mainWindow.isDestroyed() || savedBounds) return;
+        stopDrag();
+        if (mainWindow.isMaximized()) mainWindow.unmaximize();
+        savedBounds = mainWindow.getBounds();
+        mainWindow.setMinimumSize(BUBBLE_SIZE, BUBBLE_SIZE);
+        mainWindow.setResizable(false);
+        mainWindow.setBounds({ x: savedBounds.x + savedBounds.width - BUBBLE_SIZE, y: savedBounds.y, width: BUBBLE_SIZE, height: BUBBLE_SIZE });
+        mainWindow.setAlwaysOnTop(true, 'screen-saver');
+        mainWindow.webContents.send('bubble-mode', true);
+    };
+    const expandFromBubble = () => {
+        if (mainWindow.isDestroyed() || !savedBounds) return;
+        stopDrag();
+        const bubble = mainWindow.getBounds();
+        const restored = { ...savedBounds };
+        // Reopen where the bubble now is (its top-right corner), then keep the window fully on the screen
+        restored.x = bubble.x + bubble.width - restored.width;
+        restored.y = bubble.y;
+        const area = screen.getDisplayMatching(bubble).workArea;
+        restored.x = Math.max(area.x, Math.min(restored.x, area.x + area.width - restored.width));
+        restored.y = Math.max(area.y, Math.min(restored.y, area.y + area.height - restored.height));
+        savedBounds = null;
+        mainWindow.setMinimumSize(MIN_WINDOW_SIZE.width, MIN_WINDOW_SIZE.height);
+        mainWindow.setResizable(true);
+        mainWindow.setBounds(restored);
+        mainWindow.setAlwaysOnTop(process.platform === 'win32');
+        mainWindow.webContents.send('bubble-mode', false);
+    };
+    ipcMain.on('window-collapse', collapseToBubble);
+    ipcMain.on('window-expand', expandFromBubble);
     ipcMain.on('window-drag-start', () => startDrag(null));
     ipcMain.on('window-resize-start', (event, edge) => startDrag(typeof edge === 'string' ? edge : null));
     ipcMain.on('window-drag-end', stopDrag);
