@@ -51,7 +51,7 @@ const DEFAULT_QUESTION_TYPES = [
         id: 'tell_me_about_yourself',
         label: 'Tell me about yourself',
         hint: 'Introductions and "why this role"',
-        prompt: `Introduction questions. Give a 30 to 45 second answer: current role and main strengths, one or two relevant achievements from the resume, and why this role and company (use the company and job description if provided). Keep it warm and natural.`,
+        prompt: `Introduction questions, including odd phrasings like "may I meet you" or "who are you". Start with your name and current role as written in the resume ("Hi, I'm <full name>, a <role>"). Give a 30 to 45 second answer: main strengths, one or two relevant achievements from the resume, and why this role and company (use the company and job description if provided). Keep it warm and natural.`,
     },
 ];
 
