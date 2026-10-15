@@ -83,6 +83,7 @@ function initializeNewSession(profile = null, customPrompt = null) {
     currentSessionId = Date.now().toString();
     startTransportLog(currentSessionId);
     currentTranscription = '';
+    clearQuestionEndTimer();
     groqRequestStartedForTurn = false;
     conversationHistory = [];
     screenAnalysisHistory = [];
@@ -258,6 +259,32 @@ function sendFinalTranscriptionToGemini() {
     }
     groqRequestStartedForTurn = true;
     sendToGeminiText(transcription);
+}
+
+// If the speaker goes quiet for this long after the last words were heard, the question is treated as ended
+// even when the Live model has not replied (it can choose to stay silent).
+const QUESTION_END_SILENCE_MS = 1500;
+let questionEndTimer = null;
+
+function clearQuestionEndTimer() {
+    if (questionEndTimer) {
+        clearTimeout(questionEndTimer);
+        questionEndTimer = null;
+    }
+}
+
+// Sends the finished question to whichever text model is answering (Gemini or Groq), once per question
+function sendFinalTranscription() {
+    clearQuestionEndTimer();
+    sendFinalTranscriptionToGemini();
+    sendFinalTranscriptionToGroq();
+}
+
+// Called for every new piece of heard speech: restarts the countdown to "the question has ended"
+function restartQuestionEndTimer() {
+    clearQuestionEndTimer();
+    if (!usesTextAnswers()) return;
+    questionEndTimer = setTimeout(sendFinalTranscription, QUESTION_END_SILENCE_MS);
 }
 
 function sendFinalTranscriptionToGroq() {
@@ -723,7 +750,7 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                     }
 
                     if (message.serverContent?.inputTranscription) {
-                        sendFinalTranscriptionToGroq();
+                        restartQuestionEndTimer();
                     }
 
                     // The Live model replying (or finishing) means the question has ended
@@ -733,7 +760,7 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                         message.serverContent?.generationComplete ||
                         message.serverContent?.turnComplete
                     ) {
-                        sendFinalTranscriptionToGemini();
+                        sendFinalTranscription();
                     }
 
                     if (!usesTextAnswers() && message.serverContent?.outputTranscription?.text) {
@@ -753,6 +780,7 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                     }
 
                     if (message.serverContent?.turnComplete) {
+                        clearQuestionEndTimer();
                         currentTranscription = '';
                         messageBuffer = '';
                         groqRequestStartedForTurn = false;
@@ -1392,6 +1420,8 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
                 closeTransportLog();
                 return { success: true };
             }
+
+            clearQuestionEndTimer();
 
             // Set flag to prevent reconnection attempts
             isUserClosing = true;
