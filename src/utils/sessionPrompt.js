@@ -1,3 +1,5 @@
+const { buildQuestionGuidance } = require('./questionTypes');
+
 // Turns the session setup choices (company, job description, answer style)
 // into plain-language instructions that are added to the AI's context.
 
@@ -34,7 +36,7 @@ function buildAnswerStyle(prefs) {
 
 // Combines session details, answer style, the user's own notes and any uploaded document text
 function buildSessionContext(prefs, documentsText = '') {
-    return [buildSessionDetails(prefs), buildAnswerStyle(prefs), (prefs.customPrompt || '').trim(), documentsText]
+    return [buildSessionDetails(prefs), buildAnswerStyle(prefs), buildQuestionGuidance(prefs), (prefs.customPrompt || '').trim(), documentsText]
         .filter(Boolean)
         .join('\n\n');
 }

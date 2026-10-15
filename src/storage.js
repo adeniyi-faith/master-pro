@@ -27,6 +27,8 @@ const DEFAULT_PREFERENCES = {
     answerTone: 'default',
     answerFormat: 'default',
     useStarMethod: false,
+    autoQuestionType: true,
+    questionTypePrompts: {},
     providerMode: 'byok',
     selectedProfile: 'interview',
     selectedLanguage: 'en-US',
