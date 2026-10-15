@@ -9,6 +9,7 @@ const storage = require('./storage');
 const documents = require('./documents');
 const answerBank = require('./answerBank');
 const errorLog = require('./utils/errorLog');
+const usageTracker = require('./utils/usageTracker');
 
 const geminiSessionRef = { current: null };
 let mainWindow = null;
@@ -26,6 +27,15 @@ function setupErrorLogIpcHandlers() {
     });
 }
 
+// The Usage screen: how many Gemini calls were made, tokens used, and an estimated cost
+function setupUsageIpcHandlers() {
+    ipcMain.handle('usage:get', () => usageTracker.getUsageReport());
+    ipcMain.handle('usage:clear', () => {
+        usageTracker.clearUsage();
+        return true;
+    });
+}
+
 function createMainWindow() {
     mainWindow = createWindow(sendToRenderer, geminiSessionRef);
     return mainWindow;
@@ -34,6 +44,7 @@ function createMainWindow() {
 app.whenReady().then(async () => {
     // Initialize storage (checks version, resets if needed)
     storage.initializeStorage();
+    setupUsageIpcHandlers();
     errorLog.installErrorLogging();
     setupErrorLogIpcHandlers();
 

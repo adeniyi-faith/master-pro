@@ -3,6 +3,7 @@ import { MainView } from '../views/MainView.js';
 import { CustomizeView } from '../views/CustomizeView.js';
 import { HelpView } from '../views/HelpView.js';
 import { HistoryView } from '../views/HistoryView.js';
+import { UsageView } from '../views/UsageView.js';
 import { ErrorLogView } from '../views/ErrorLogView.js';
 import { AssistantView } from '../views/AssistantView.js';
 import { OnboardingView } from '../views/OnboardingView.js';
@@ -797,6 +798,9 @@ export class CheatingDaddyApp extends LitElement {
             case 'history':
                 return html`<history-view></history-view>`;
 
+            case 'usage':
+                return html`<usage-view .onExternalLinkClick=${url => this.handleExternalLinkClick(url)}></usage-view>`;
+
             case 'errors':
                 return html`<error-log-view></error-log-view>`;
 
@@ -883,6 +887,15 @@ export class CheatingDaddyApp extends LitElement {
                     <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
                         <path d="M18 4a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3h-5l-5 3v-3H6a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3zM9.5 9h.01m4.99 0h.01" />
                         <path d="M9.5 13a3.5 3.5 0 0 0 5 0" />
+                    </g>
+                </svg>`,
+            },
+            {
+                id: 'usage',
+                label: 'Usage & cost',
+                icon: html`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24">
+                    <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
+                        <path d="M4 20V10m6 10V4m6 16v-7m4 7H2" />
                     </g>
                 </svg>`,
             },
