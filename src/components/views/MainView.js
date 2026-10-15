@@ -1,5 +1,7 @@
 import { html, css, LitElement } from '../../assets/lit-core-2.7.4.min.js';
 
+const geminiModels = () => window.require('./utils/geminiModels');
+
 const LOCAL_LLM_PRESETS = [
     { value: 'unsloth/Qwen3.5-0.8B-GGUF:Q4_K_M', label: 'Qwen 3.5 0.8B Q4 — 0.74 GB · Fastest' },
     { value: 'unsloth/Qwen3.5-0.8B-GGUF:Q8_0', label: 'Qwen 3.5 0.8B Q8 — 1.02 GB' },
@@ -699,6 +701,8 @@ export class MainView extends LitElement {
         _groqKey: { state: true },
         _openaiKey: { state: true },
         _geminiLiveModel: { state: true },
+        _geminiScreenshotModel: { state: true },
+        _geminiAnswerModel: { state: true },
         _groqModel: { state: true },
         _groqImageModel: { state: true },
         _disableGroqThinking: { state: true },
@@ -728,6 +732,8 @@ export class MainView extends LitElement {
         this._groqKey = '';
         this._openaiKey = '';
         this._geminiLiveModel = 'gemini-3.1-flash-live-preview';
+        this._geminiScreenshotModel = 'gemini-3.8-flash';
+        this._geminiAnswerModel = '';
         this._groqModel = 'qwen/qwen3.6-27b';
         this._groqImageModel = 'qwen/qwen3.6-27b';
         this._disableGroqThinking = true;
@@ -768,6 +774,8 @@ export class MainView extends LitElement {
             this._groqKey = (await cheatingDaddy.storage.getGroqApiKey().catch(() => '')) || '';
             this._openaiKey = creds.openaiKey || '';
             this._geminiLiveModel = config.geminiLiveModel || 'gemini-3.1-flash-live-preview';
+            this._geminiScreenshotModel = config.geminiScreenshotModel || 'gemini-3.8-flash';
+            this._geminiAnswerModel = config.geminiAnswerModel || '';
             this._groqModel = config.groqModel || 'qwen/qwen3.6-27b';
             this._groqImageModel = config.groqImageModel || 'qwen/qwen3.6-27b';
             this._disableGroqThinking = config.disableGroqThinking === true;
@@ -949,6 +957,27 @@ export class MainView extends LitElement {
         this._geminiLiveModel = val;
         await cheatingDaddy.storage.updateConfig('geminiLiveModel', val);
         this.requestUpdate();
+    }
+
+    async _saveGeminiScreenshotModel(val) {
+        this._geminiScreenshotModel = val;
+        await cheatingDaddy.storage.updateConfig('geminiScreenshotModel', val);
+        this.requestUpdate();
+    }
+
+    async _saveGeminiAnswerModel(val) {
+        this._geminiAnswerModel = val;
+        await cheatingDaddy.storage.updateConfig('geminiAnswerModel', val);
+        this.requestUpdate();
+    }
+
+    // Builds the <option> list for a model picker. A model typed in by an older version stays selectable.
+    _renderModelOptions(models, current) {
+        const known = models.some(model => model.id === current);
+        return html`
+            ${models.map(model => html`<option value=${model.id} ?selected=${model.id === current}>${model.label}</option>`)}
+            ${known ? '' : html`<option value=${current} selected>${current} (custom)</option>`}
+        `;
     }
 
     async _saveGroqModel(val) {
@@ -1183,7 +1212,26 @@ export class MainView extends LitElement {
 
                     <div class="form-group">
                         <label class="form-label">Gemini Live Model</label>
-                        <input type="text" .value=${this._geminiLiveModel} @input=${e => this._saveGeminiLiveModel(e.target.value)} />
+                        <select @change=${e => this._saveGeminiLiveModel(e.target.value)}>
+                            ${this._renderModelOptions(geminiModels().LIVE_MODELS, this._geminiLiveModel)}
+                        </select>
+                        <div class="form-hint">Listens and answers by voice. Takes effect the next time you start a session.</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Spoken Answer Model</label>
+                        <select @change=${e => this._saveGeminiAnswerModel(e.target.value)}>
+                            ${this._renderModelOptions(geminiModels().ANSWER_MODELS, this._geminiAnswerModel)}
+                        </select>
+                        <div class="form-hint">Writes the answer once the question has ended. When set, it is used instead of Groq.</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Screenshot Answer Model</label>
+                        <select @change=${e => this._saveGeminiScreenshotModel(e.target.value)}>
+                            ${this._renderModelOptions(geminiModels().SCREENSHOT_MODELS, this._geminiScreenshotModel)}
+                        </select>
+                        <div class="form-hint">Reads your screen when you ask about it, and writes your session notes.</div>
                     </div>
                 </div>
             </details>
