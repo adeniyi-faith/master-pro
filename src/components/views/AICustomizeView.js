@@ -1,5 +1,6 @@
 import { html, css, LitElement } from '../../assets/lit-core-2.7.4.min.js';
 import { unifiedPageStyles } from './sharedPageStyles.js';
+import './SessionPicker.js';
 
 const questionTypes = () => window.require('./utils/questionTypes');
 
@@ -147,9 +148,25 @@ export class AICustomizeView extends LitElement {
         this._answerMessage = '';
         this._message = '';
         this._dragOver = false;
-        this._loadFromStorage();
-        this._loadDocuments();
-        this._loadAnswers();
+        this._reloadAll = () => {
+            this._draft = { id: '', heading: '', body: '' };
+            this._answerMessage = '';
+            this._message = '';
+            this._loadFromStorage();
+            this._loadDocuments();
+            this._loadAnswers();
+        };
+        this._reloadAll();
+    }
+
+    connectedCallback() {
+        super.connectedCallback();
+        window.addEventListener('setup-changed', this._reloadAll);
+    }
+
+    disconnectedCallback() {
+        super.disconnectedCallback();
+        window.removeEventListener('setup-changed', this._reloadAll);
     }
 
     async _loadFromStorage() {
@@ -329,6 +346,14 @@ export class AICustomizeView extends LitElement {
                         <div class="page-title">Session Setup</div>
                         <div class="page-subtitle">Tell the AI about the call so its answers fit. Saved automatically and used the next time you start a session.</div>
                     </div>
+
+                    <section class="surface">
+                        <div class="surface-title">Saved Session</div>
+                        <div class="surface-subtitle">
+                            Each session keeps its own company, job description, documents, answer bank and answer style. Make one per type of interview, then pick it on the Home screen before you start.
+                        </div>
+                        <session-picker></session-picker>
+                    </section>
 
                     <section class="surface">
                         <div class="form-grid">

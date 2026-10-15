@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { getConfigDir } = require('./storage');
+const { getSetupFilePath } = require('./storage');
 
 // Answers the user has written in advance, each with a heading and a body.
 // Limits keep the AI's context from growing too large.
@@ -10,7 +10,7 @@ const MAX_BODY_CHARS = 4000;
 const MAX_CHARS_TOTAL = 30000;
 
 function getAnswerBankPath() {
-    return path.join(getConfigDir(), 'answerbank.json');
+    return getSetupFilePath('answerbank');
 }
 
 function readAll() {

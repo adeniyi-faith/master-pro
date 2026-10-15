@@ -1,4 +1,5 @@
 import { html, css, LitElement } from '../../assets/lit-core-2.7.4.min.js';
+import './SessionPicker.js';
 
 const geminiModels = () => window.require('./utils/geminiModels');
 
@@ -529,6 +530,15 @@ export class MainView extends LitElement {
 
         .title-row .page-title {
             margin-bottom: 0;
+        }
+
+        .session-pick {
+            margin: 14px 0 6px;
+        }
+
+        .session-pick .form-label {
+            display: block;
+            margin-bottom: 6px;
         }
 
         .help-btn {
@@ -1390,6 +1400,10 @@ export class MainView extends LitElement {
                         : html` <div class="page-title">${html`SoftMaster PRO <span class="mode-suffix">BYOK</span>`}</div> `
                 }
                 <div class="page-subtitle">${this._mode === 'byok' ? 'Bring your own API keys' : 'Run models locally on your machine'}</div>
+                <div class="session-pick">
+                    <label class="form-label">Session</label>
+                    <session-picker compact></session-picker>
+                </div>
 
                 <!-- Cloud mode render branch intentionally disabled. -->
                 ${this._mode === 'byok' ? this._renderByokMode() : ''} ${this._mode === 'local' ? this._renderLocalMode() : ''}

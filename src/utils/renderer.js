@@ -71,6 +71,31 @@ const storage = {
         return ipcRenderer.invoke('storage:update-preference', key, value);
     },
 
+    // Saved sessions (each has its own company, documents, answer bank and style)
+    async listSetups() {
+        return ipcRenderer.invoke('setups:list');
+    },
+    async createSetup(name, copyFromId) {
+        const id = await ipcRenderer.invoke('setups:create', name, copyFromId);
+        notifySetupChanged();
+        return id;
+    },
+    async renameSetup(id, name) {
+        const ok = await ipcRenderer.invoke('setups:rename', id, name);
+        notifySetupChanged();
+        return ok;
+    },
+    async activateSetup(id) {
+        const ok = await ipcRenderer.invoke('setups:activate', id);
+        notifySetupChanged();
+        return ok;
+    },
+    async deleteSetup(id) {
+        const ok = await ipcRenderer.invoke('setups:delete', id);
+        notifySetupChanged();
+        return ok;
+    },
+
     // Keybinds
     async getKeybinds() {
         const result = await ipcRenderer.invoke('storage:get-keybinds');
@@ -111,6 +136,11 @@ const storage = {
     },
 };
 
+// Tells open screens that the active saved session (or its name) changed, so they reload
+function notifySetupChanged() {
+    window.dispatchEvent(new CustomEvent('setup-changed'));
+}
+
 // Cache for preferences to avoid async calls in hot paths
 let preferencesCache = null;
 
@@ -121,6 +151,7 @@ async function loadPreferencesCache() {
 
 // Initialize preferences cache
 loadPreferencesCache();
+window.addEventListener('setup-changed', () => loadPreferencesCache());
 
 function convertFloat32ToInt16(float32Array) {
     const int16Array = new Int16Array(float32Array.length);

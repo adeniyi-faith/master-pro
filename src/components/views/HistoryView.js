@@ -371,11 +371,8 @@ export class HistoryView extends LitElement {
     }
 
     _getProfileLabel(session) {
-        if (session.profile) {
-            const names = this.getProfileNames();
-            return names[session.profile] || session.profile;
-        }
-        return 'Session';
+        const base = session.profile ? this.getProfileNames()[session.profile] || session.profile : 'Session';
+        return session.setupName ? `${base} · ${session.setupName}` : base;
     }
 
     getSessionPreview(session) {

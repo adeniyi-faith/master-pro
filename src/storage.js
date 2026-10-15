@@ -228,9 +228,25 @@ function setGroqApiKey(groqApiKey) {
 
 // ============ PREFERENCES ============
 
+// Preference keys that belong to a saved session (company, answer style, and so on).
+// Everything else (language, window, speed, and so on) is shared by all sessions.
+const SESSION_PREFERENCE_KEYS = [
+    'customPrompt',
+    'company',
+    'jobDescription',
+    'answerTone',
+    'customTone',
+    'questionTypeTones',
+    'answerFormat',
+    'useStarMethod',
+    'autoQuestionType',
+    'questionTypePrompts',
+];
+
 function getPreferences() {
     const saved = readJsonFile(getPreferencesPath(), {});
-    const preferences = { ...DEFAULT_PREFERENCES, ...saved };
+    for (const key of SESSION_PREFERENCE_KEYS) delete saved[key];
+    const preferences = { ...DEFAULT_PREFERENCES, ...saved, ...getActiveSetup().settings };
     const legacyWhisperModels = {
         'Xenova/whisper-tiny': 'tiny.en',
         'Xenova/whisper-base': 'base.en',
@@ -241,16 +257,157 @@ function getPreferences() {
     return preferences;
 }
 
+// Saves preferences. Session keys go to the active session; the rest go to the shared file.
 function setPreferences(preferences) {
-    const current = getPreferences();
-    const updated = { ...current, ...preferences };
-    return writeJsonFile(getPreferencesPath(), updated);
+    const sessionPart = {};
+    const sharedPart = {};
+    for (const [key, value] of Object.entries(preferences || {})) {
+        (SESSION_PREFERENCE_KEYS.includes(key) ? sessionPart : sharedPart)[key] = value;
+    }
+
+    let ok = true;
+    if (Object.keys(sessionPart).length) {
+        const data = readSetups();
+        const active = data.setups.find(setup => setup.id === data.activeId);
+        active.settings = { ...active.settings, ...sessionPart };
+        ok = writeSetups(data) && ok;
+    }
+    if (Object.keys(sharedPart).length) {
+        const saved = readJsonFile(getPreferencesPath(), {});
+        for (const key of SESSION_PREFERENCE_KEYS) delete saved[key];
+        ok = writeJsonFile(getPreferencesPath(), { ...DEFAULT_PREFERENCES_SHARED(), ...saved, ...sharedPart }) && ok;
+    }
+    return ok;
 }
 
 function updatePreference(key, value) {
-    const preferences = getPreferences();
-    preferences[key] = value;
-    return writeJsonFile(getPreferencesPath(), preferences);
+    return setPreferences({ [key]: value });
+}
+
+// The shared defaults: every default preference that is not a session key
+function DEFAULT_PREFERENCES_SHARED() {
+    const shared = { ...DEFAULT_PREFERENCES };
+    for (const key of SESSION_PREFERENCE_KEYS) delete shared[key];
+    return shared;
+}
+
+// ============ SAVED SESSIONS ("setups") ============
+// Each saved session has its own company, job description, answer style, question guides,
+// documents and answer bank. History entries are separate and keep the name of the session they came from.
+
+const DEFAULT_SETUP_ID = 'default';
+
+function getSetupsPath() {
+    return path.join(getConfigDir(), 'sessions.json');
+}
+
+function newSetupId() {
+    return `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+}
+
+// Reads the list of saved sessions. The first time, a "My session" entry is made from the
+// settings the user already has, so nothing is lost when upgrading.
+function readSetups() {
+    const data = readJsonFile(getSetupsPath(), null);
+    if (data && Array.isArray(data.setups) && data.setups.length) {
+        if (!data.setups.some(setup => setup.id === data.activeId)) data.activeId = data.setups[0].id;
+        return data;
+    }
+
+    const legacy = readJsonFile(getPreferencesPath(), {});
+    const settings = {};
+    for (const key of SESSION_PREFERENCE_KEYS) {
+        if (key in legacy) settings[key] = legacy[key];
+    }
+    const created = {
+        activeId: DEFAULT_SETUP_ID,
+        setups: [{ id: DEFAULT_SETUP_ID, name: 'My session', createdAt: Date.now(), settings }],
+    };
+    writeJsonFile(getSetupsPath(), created);
+    return created;
+}
+
+function writeSetups(data) {
+    return writeJsonFile(getSetupsPath(), data);
+}
+
+function getActiveSetup() {
+    const data = readSetups();
+    return data.setups.find(setup => setup.id === data.activeId);
+}
+
+// File for one kind of per-session data (documents, answer bank). The first session keeps the old file names.
+function getSetupFilePath(kind, setupId) {
+    const id = setupId || getActiveSetup().id;
+    return path.join(getConfigDir(), id === DEFAULT_SETUP_ID ? `${kind}.json` : `${kind}-${id}.json`);
+}
+
+const SETUP_DATA_KINDS = ['documents', 'answerbank'];
+
+function listSetups() {
+    const data = readSetups();
+    return {
+        activeId: data.activeId,
+        setups: data.setups.map(({ id, name, createdAt }) => ({ id, name, createdAt })),
+    };
+}
+
+function cleanSetupName(name, fallback) {
+    const trimmed = String(name || '').trim().slice(0, 60);
+    return trimmed || fallback;
+}
+
+// Creates a session and makes it the active one. With `copyFromId` it starts as a copy of that session.
+function createSetup(name, copyFromId) {
+    const data = readSetups();
+    const source = copyFromId ? data.setups.find(setup => setup.id === copyFromId) : null;
+    const setup = {
+        id: newSetupId(),
+        name: cleanSetupName(name, source ? `${source.name} copy` : `Session ${data.setups.length + 1}`),
+        createdAt: Date.now(),
+        settings: source ? JSON.parse(JSON.stringify(source.settings || {})) : {},
+    };
+    if (source) {
+        for (const kind of SETUP_DATA_KINDS) {
+            const from = getSetupFilePath(kind, source.id);
+            if (fs.existsSync(from)) fs.copyFileSync(from, getSetupFilePath(kind, setup.id));
+        }
+    }
+    data.setups.push(setup);
+    data.activeId = setup.id;
+    writeSetups(data);
+    return setup.id;
+}
+
+function renameSetup(id, name) {
+    const data = readSetups();
+    const setup = data.setups.find(item => item.id === id);
+    if (!setup) return false;
+    setup.name = cleanSetupName(name, setup.name);
+    return writeSetups(data);
+}
+
+function setActiveSetup(id) {
+    const data = readSetups();
+    if (!data.setups.some(setup => setup.id === id)) return false;
+    data.activeId = id;
+    return writeSetups(data);
+}
+
+// Removes a session and its documents and answer bank. The last remaining session cannot be removed.
+function deleteSetup(id) {
+    const data = readSetups();
+    if (data.setups.length <= 1 || !data.setups.some(setup => setup.id === id)) return false;
+    data.setups = data.setups.filter(setup => setup.id !== id);
+    if (data.activeId === id) data.activeId = data.setups[0].id;
+    for (const kind of SETUP_DATA_KINDS) {
+        try {
+            fs.rmSync(getSetupFilePath(kind, id), { force: true });
+        } catch (error) {
+            console.warn('Could not remove session data:', error.message);
+        }
+    }
+    return writeSetups(data);
 }
 
 // ============ KEYBINDS ============
@@ -420,6 +577,8 @@ function saveSession(sessionId, data) {
         // Conversation data
         conversationHistory: data.conversationHistory || existingSession?.conversationHistory || [],
         screenAnalysisHistory: data.screenAnalysisHistory || existingSession?.screenAnalysisHistory || [],
+        // The saved session (company, documents...) that was active when this one started
+        setupName: existingSession?.setupName || getActiveSetup().name,
         // Post-session notes, written on request
         notes: data.notes || existingSession?.notes || null,
     };
@@ -461,6 +620,7 @@ function getAllSessions() {
                         screenAnalysisCount: data.screenAnalysisHistory?.length || 0,
                         profile: data.profile || null,
                         customPrompt: data.customPrompt || null,
+                        setupName: data.setupName || null,
                     };
                 }
                 return null;
@@ -546,6 +706,13 @@ module.exports = {
 
     // History
     saveSession,
+    SESSION_PREFERENCE_KEYS,
+    getSetupFilePath,
+    listSetups,
+    createSetup,
+    renameSetup,
+    setActiveSetup,
+    deleteSetup,
     getSession,
     getAllSessions,
     deleteSession,
