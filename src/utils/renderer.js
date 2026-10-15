@@ -1,6 +1,7 @@
 // renderer.js
 const { ipcRenderer } = require('electron');
 const { buildSessionContext: buildSessionPrompt } = require('./utils/sessionPrompt');
+const { setUpWindowMove } = require('./utils/windowMove');
 
 let mediaStream = null;
 let screenshotInterval = null;
@@ -1128,6 +1129,13 @@ const cheatingDaddy = {
 
 // Make it globally available
 window.cheatingDaddy = cheatingDaddy;
+
+// Double-click-and-drag to move the window, and edge handles to resize it
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => setUpWindowMove());
+} else {
+    setUpWindowMove();
+}
 
 // Load theme after DOM is ready
 if (document.readyState === 'loading') {
