@@ -905,6 +905,7 @@ export class AssistantView extends LitElement {
             ['shorter', '− Shorter', false],
             ['simpler', '✦ Simpler', false],
             ['example', '💡 Add example', false],
+            ['search', '🔎 Search', false],
         ];
 
         return html`
