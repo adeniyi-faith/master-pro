@@ -1215,7 +1215,7 @@ export class MainView extends LitElement {
                         <select @change=${e => this._saveGeminiLiveModel(e.target.value)}>
                             ${this._renderModelOptions(geminiModels().LIVE_MODELS, this._geminiLiveModel)}
                         </select>
-                        <div class="form-hint">Listens and answers by voice. Takes effect the next time you start a session.</div>
+                        <div class="form-hint">Listens to the call and writes answers on screen (it never speaks aloud). Takes effect the next time you start a session.</div>
                     </div>
 
                     <div class="form-group">

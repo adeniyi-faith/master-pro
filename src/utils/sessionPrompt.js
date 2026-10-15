@@ -31,9 +31,9 @@ function buildAnswerStyle(prefs) {
     return lines.length ? `Answer style\n${lines.map(line => `- ${line}`).join('\n')}` : '';
 }
 
-// Combines session details, answer style, the user's own notes and any uploaded document text
-function buildSessionContext(prefs, documentsText = '') {
-    return [buildSessionDetails(prefs), buildAnswerStyle(prefs), buildQuestionGuidance(prefs), (prefs.customPrompt || '').trim(), documentsText]
+// Combines session details, answer style, the user's own notes, the answer bank and any uploaded document text
+function buildSessionContext(prefs, documentsText = '', answerBankText = '') {
+    return [buildSessionDetails(prefs), buildAnswerStyle(prefs), buildQuestionGuidance(prefs), (prefs.customPrompt || '').trim(), answerBankText, documentsText]
         .filter(Boolean)
         .join('\n\n');
 }
