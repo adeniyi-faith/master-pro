@@ -184,6 +184,7 @@ export class CustomizeView extends LitElement {
         googleSearchEnabled: { type: Boolean },
         backgroundTransparency: { type: Number },
         fontSize: { type: Number },
+        endOfSpeech: { type: String },
         theme: { type: String },
         onProfileChange: { type: Function },
         onLanguageChange: { type: Function },
@@ -214,6 +215,7 @@ export class CustomizeView extends LitElement {
         this.backgroundTransparency = 0.8;
         this.fontSize = 20;
         this.audioMode = 'speaker_only';
+        this.endOfSpeech = 'fast';
         this.customPrompt = '';
         this.theme = 'dark';
         this._loadFromStorage();
@@ -230,6 +232,7 @@ export class CustomizeView extends LitElement {
             this.backgroundTransparency = prefs.backgroundTransparency ?? 0.8;
             this.fontSize = prefs.fontSize ?? 20;
             this.audioMode = prefs.audioMode ?? 'speaker_only';
+            this.endOfSpeech = prefs.endOfSpeech ?? 'fast';
             this.customPrompt = prefs.customPrompt ?? '';
             this.theme = prefs.theme ?? 'dark';
             if (keybinds) {
@@ -361,6 +364,12 @@ export class CustomizeView extends LitElement {
         this.requestUpdate();
     }
 
+    async handleEndOfSpeechSelect(e) {
+        this.endOfSpeech = e.target.value;
+        await cheatingDaddy.storage.updatePreference('endOfSpeech', this.endOfSpeech);
+        this.requestUpdate();
+    }
+
     async handleThemeChange(e) {
         this.theme = e.target.value;
         await cheatingDaddy.theme.save(this.theme);
@@ -486,6 +495,7 @@ export class CustomizeView extends LitElement {
                 selectedScreenshotInterval: '5',
                 selectedImageQuality: 'medium',
                 audioMode: 'speaker_only',
+                endOfSpeech: 'fast',
                 fontSize: 20,
                 backgroundTransparency: 0.8,
                 googleSearchEnabled: false,
@@ -508,6 +518,7 @@ export class CustomizeView extends LitElement {
             this.selectedLanguage = defaults.selectedLanguage;
             this.selectedImageQuality = defaults.selectedImageQuality;
             this.audioMode = defaults.audioMode;
+            this.endOfSpeech = defaults.endOfSpeech;
             this.fontSize = defaults.fontSize;
             this.backgroundTransparency = defaults.backgroundTransparency;
             this.googleSearchEnabled = defaults.googleSearchEnabled;
@@ -583,6 +594,15 @@ export class CustomizeView extends LitElement {
                     ${this.audioMode !== 'speaker_only' ? html`
                         <div class="warning-callout">May cause unexpected behavior. Only change this if you know what you're doing.</div>
                     ` : ''}
+                    <div class="form-group">
+                        <label class="form-label">Answer Speed</label>
+                        <select class="control" .value=${this.endOfSpeech} @change=${this.handleEndOfSpeechSelect}>
+                            <option value="balanced">Balanced</option>
+                            <option value="fast">Fast (default)</option>
+                            <option value="fastest">Fastest</option>
+                        </select>
+                    </div>
+                    <div class="form-help">How long the app waits in silence before deciding a question is finished. Balanced waits longest for pauses. Fastest answers soonest but may cut off slow speakers. Takes effect the next time you start a session.</div>
                     <div class="form-group">
                         <label class="form-label">Image Quality</label>
                         <select class="control" .value=${this.selectedImageQuality} @change=${this.handleImageQualitySelect}>

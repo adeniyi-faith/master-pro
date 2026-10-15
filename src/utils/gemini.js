@@ -1,4 +1,4 @@
-const { GoogleGenAI, Modality } = require('@google/genai');
+const { GoogleGenAI, Modality, EndSensitivity } = require('@google/genai');
 const { BrowserWindow, ipcMain } = require('electron');
 const { spawn } = require('child_process');
 const { saveDebugAudio } = require('../audioUtils');
@@ -152,6 +152,21 @@ function getCurrentSessionData() {
     return {
         sessionId: currentSessionId,
         history: conversationHistory,
+    };
+}
+
+// How quickly the AI decides the other person has finished speaking.
+// 'balanced' keeps Gemini's defaults; the others end a turn after a shorter silence.
+function getRealtimeInputConfig() {
+    const speed = getPreferences().endOfSpeech;
+    const silenceMs = { fast: 500, fastest: 250 }[speed];
+    if (!silenceMs) return undefined;
+
+    return {
+        automaticActivityDetection: {
+            endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_HIGH,
+            silenceDurationMs: silenceMs,
+        },
     };
 }
 
@@ -745,6 +760,7 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                 proactivity: { proactiveAudio: true },
                 outputAudioTranscription: {},
                 tools: enabledTools,
+                realtimeInputConfig: getRealtimeInputConfig(),
                 // Enable speaker diarization
                 inputAudioTranscription: {
                     enableSpeakerDiarization: true,
