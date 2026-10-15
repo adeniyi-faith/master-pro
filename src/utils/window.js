@@ -374,7 +374,6 @@ function setupWindowIpcHandlers(mainWindow, sendToRenderer, geminiSessionRef) {
         if (mainWindow.isMaximized()) mainWindow.unmaximize();
         savedBounds = mainWindow.getBounds();
         mainWindow.setMinimumSize(BUBBLE_SIZE, BUBBLE_SIZE);
-        mainWindow.setResizable(false);
         mainWindow.setBounds({ x: savedBounds.x + savedBounds.width - BUBBLE_SIZE, y: savedBounds.y, width: BUBBLE_SIZE, height: BUBBLE_SIZE });
         mainWindow.setAlwaysOnTop(true, 'screen-saver');
         mainWindow.webContents.send('bubble-mode', true);
@@ -392,10 +391,26 @@ function setupWindowIpcHandlers(mainWindow, sendToRenderer, geminiSessionRef) {
         restored.y = Math.max(area.y, Math.min(restored.y, area.y + area.height - restored.height));
         savedBounds = null;
         mainWindow.setMinimumSize(MIN_WINDOW_SIZE.width, MIN_WINDOW_SIZE.height);
-        mainWindow.setResizable(true);
-        mainWindow.setBounds(restored);
         mainWindow.setAlwaysOnTop(process.platform === 'win32');
-        mainWindow.webContents.send('bubble-mode', false);
+
+        // Some Windows setups ignore the first resize, which left a tiny invisible window.
+        // Resize, check, and try again a few times before showing the app again.
+        let attempts = 0;
+        const restore = () => {
+            if (mainWindow.isDestroyed()) return;
+            mainWindow.setBounds(restored);
+            attempts++;
+            setTimeout(() => {
+                if (mainWindow.isDestroyed()) return;
+                const now = mainWindow.getBounds();
+                const grown = Math.abs(now.width - restored.width) <= 4 && Math.abs(now.height - restored.height) <= 4;
+                if (!grown && attempts < 5) return restore();
+                mainWindow.show();
+                mainWindow.focus();
+                mainWindow.webContents.send('bubble-mode', false);
+            }, 60);
+        };
+        restore();
     };
     ipcMain.on('window-collapse', collapseToBubble);
     ipcMain.on('window-expand', expandFromBubble);
