@@ -36,6 +36,7 @@ const DEFAULT_PREFERENCES = {
     providerMode: 'byok',
     selectedProfile: 'interview',
     selectedLanguage: 'en-US',
+    englishOnly: false,
     selectedScreenshotInterval: '5',
     selectedImageQuality: 'medium',
     advancedMode: false,
