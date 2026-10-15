@@ -40,7 +40,10 @@ function pcmToWav(pcmBuffer, outputPath, sampleRate = 24000, channels = 1, bitDe
 
 // Analyze audio buffer for debugging
 function analyzeAudioBuffer(buffer, label = 'Audio') {
-    const int16Array = new Int16Array(buffer.buffer, buffer.byteOffset, buffer.length / 2);
+    // Copy into a fresh, aligned buffer and drop any trailing odd byte so Int16Array never throws
+    const evenLength = buffer.length - (buffer.length % 2);
+    const aligned = Buffer.from(buffer.subarray(0, evenLength));
+    const int16Array = new Int16Array(aligned.buffer, aligned.byteOffset, evenLength / 2);
 
     let minValue = 32767;
     let maxValue = -32768;
@@ -60,10 +63,11 @@ function analyzeAudioBuffer(buffer, label = 'Audio') {
         }
     }
 
-    avgValue /= int16Array.length;
-    rmsValue = Math.sqrt(rmsValue / int16Array.length);
+    const count = int16Array.length || 1;
+    avgValue /= count;
+    rmsValue = Math.sqrt(rmsValue / count);
 
-    const silencePercentage = (silentSamples / int16Array.length) * 100;
+    const silencePercentage = (silentSamples / count) * 100;
 
     console.log(`${label} Analysis:`);
     console.log(`  Samples: ${int16Array.length}`);
