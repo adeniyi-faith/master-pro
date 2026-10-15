@@ -1,8 +1,8 @@
 {
-    "name": "cheating-daddy",
-    "productName": "cheating-daddy",
+    "name": "softmaster-pro",
+    "productName": "SoftMaster PRO",
     "version": "0.8.0",
-    "description": "cheating daddy",
+    "description": "SoftMaster PRO - real-time AI assistant for calls and meetings",
     "main": "src/index.js",
     "scripts": {
         "start": "electron-forge start",
@@ -12,11 +12,9 @@
         "lint": "echo \"No linting configured\""
     },
     "keywords": [
-        "cheating daddy",
-        "cheating daddy ai",
-        "cheating daddy ai assistant",
-        "cheating daddy ai assistant for interviews",
-        "cheating daddy ai assistant for interviews"
+        "softmaster pro",
+        "ai assistant",
+        "real-time ai"
     ],
     "author": {
         "name": "sohzm",

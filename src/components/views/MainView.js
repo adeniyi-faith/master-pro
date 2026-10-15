@@ -1335,11 +1335,11 @@ export class MainView extends LitElement {
                     this._mode === 'local'
                         ? html`
                               <div class="title-row">
-                                  <div class="page-title">Cheating Daddy <span class="mode-suffix">Local AI</span></div>
+                                  <div class="page-title">SoftMaster PRO <span class="mode-suffix">Local AI</span></div>
                                   <button class="help-btn" @click=${this._openLocalHelp} aria-label="Open Local AI help">${helpIcon}</button>
                               </div>
                           `
-                        : html` <div class="page-title">${html`Cheating Daddy <span class="mode-suffix">BYOK</span>`}</div> `
+                        : html` <div class="page-title">${html`SoftMaster PRO <span class="mode-suffix">BYOK</span>`}</div> `
                 }
                 <div class="page-subtitle">${this._mode === 'byok' ? 'Bring your own API keys' : 'Run models locally on your machine'}</div>
 
@@ -1363,7 +1363,7 @@ export class MainView extends LitElement {
                         <div class="help-section">
                             <div class="help-section-title">Native local AI</div>
                             <div class="help-section-text">
-                                Cheating Daddy runs llama.cpp and whisper.cpp directly. Everything stays on your computer — no external AI service or
+                                SoftMaster PRO runs llama.cpp and whisper.cpp directly. Everything stays on your computer — no external AI service or
                                 Ollama installation is required.
                             </div>
                         </div>
@@ -1372,7 +1372,7 @@ export class MainView extends LitElement {
                             <div class="help-section-title">Automatic setup</div>
                             <div class="help-section-text">
                                 The correct native runners, selected Whisper model, and language model are downloaded and checksum-verified on first
-                                use. They are stored in the Cheating Daddy config directory.
+                                use. They are stored in the SoftMaster PRO config directory.
                             </div>
                         </div>
 
