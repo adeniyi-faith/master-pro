@@ -372,6 +372,7 @@ export class CheatingDaddyApp extends LitElement {
     static properties = {
         currentView: { type: String },
         statusText: { type: String },
+        _canReconnect: { state: true },
         startTime: { type: Number },
         isRecording: { type: Boolean },
         sessionActive: { type: Boolean },
@@ -397,6 +398,7 @@ export class CheatingDaddyApp extends LitElement {
         super();
         this.currentView = 'main';
         this.statusText = '';
+        this._canReconnect = false;
         this.startTime = null;
         this.isRecording = false;
         this.sessionActive = false;
@@ -468,7 +470,10 @@ export class CheatingDaddyApp extends LitElement {
             ipcRenderer.on('click-through-toggled', (_, isEnabled) => {
                 this._isClickThrough = isEnabled;
             });
-            ipcRenderer.on('reconnect-failed', (_, data) => this.addNewResponse(data.message));
+            ipcRenderer.on('reconnect-failed', (_, data) => {
+                this.addNewResponse(data.message);
+                this._canReconnect = !!data.canRetry;
+            });
             ipcRenderer.on('whisper-downloading', (_, downloading) => {
                 this._whisperDownloading = downloading;
             });
@@ -523,8 +528,17 @@ export class CheatingDaddyApp extends LitElement {
 
     // ── Status & Responses ──
 
+    handleReconnectNow() {
+        if (!window.require) return;
+        const { ipcRenderer } = window.require('electron');
+        this._canReconnect = false;
+        this.setStatus('Reconnecting...');
+        ipcRenderer.invoke('reconnect-live');
+    }
+
     setStatus(text) {
         this.statusText = text;
+        if (this._canReconnect && /Back online|Reconnected/.test(text)) this._canReconnect = false;
         if (text.includes('Ready') || text.includes('Listening') || text.includes('Error')) {
             this._currentResponseIsComplete = true;
         }
@@ -991,6 +1005,7 @@ export class CheatingDaddyApp extends LitElement {
                 <div class="live-bar-center">${profileLabels[this.selectedProfile] || 'Session'}</div>
                 <div class="live-bar-right">
                     ${this.statusText ? html`<span class="live-bar-text">${this.statusText}</span>` : ''}
+                    ${this._canReconnect ? html`<span class="live-bar-text clickable" @click=${() => this.handleReconnectNow()}>[reconnect]</span>` : ''}
                     <span class="live-bar-text">${this.getElapsedTime()}</span>
                     ${this._isClickThrough ? html`<span class="live-bar-text">[click through]</span>` : ''}
                     <span class="live-bar-text clickable" @click=${() => this.handleHideToggle()}>[hide]</span>

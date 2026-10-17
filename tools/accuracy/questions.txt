@@ -1,0 +1,20 @@
+01|Tell me about yourself and your background.
+02|Why do you want to work for our company?
+03|What is your biggest weakness, and how are you working on it?
+04|Describe a time you handled a difficult client or colleague.
+05|Where do you see yourself in five years?
+06|Walk me through how you would design a system to handle one million users.
+07|What is the difference between a process and a thread?
+08|Tell me about a project you are proud of and what your role was.
+09|How do you prioritise when you have three deadlines on the same day?
+10|What salary are you expecting for this role?
+11|Can you explain what an API is to someone who is not technical?
+12|Tell me about a time you failed and what you learned from it.
+13|How would you improve our onboarding process for new customers?
+14|What does your typical day look like in your current job?
+15|Describe a situation where you had to learn something new very quickly.
+16|How do you handle feedback that you disagree with?
+17|What is your experience with databases, and when would you choose SQL over NoSQL?
+18|Why are you leaving your current position?
+19|How would you explain the difference between revenue and profit?
+20|Do you have any questions for us?
