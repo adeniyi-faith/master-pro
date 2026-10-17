@@ -48,6 +48,7 @@ const DEFAULT_PREFERENCES = {
     googleSearchEnabled: false,
     localLlmModel: 'unsloth/Qwen3.5-4B-GGUF:Q4_K_M',
     whisperModel: 'tiny.en',
+    practiceSaveHistory: true,
 };
 
 const DEFAULT_KEYBINDS = null; // null means use system defaults
@@ -56,17 +57,35 @@ const DEFAULT_LIMITS = {
     data: [], // Array of { date: 'YYYY-MM-DD', flash: { count }, flashLite: { count }, groq: { 'qwen3-32b': { chars, limit }, 'gpt-oss-120b': { chars, limit }, 'gpt-oss-20b': { chars, limit } }, gemini: { 'gemma-4-26b-a4b-it': { chars } } }
 };
 
+let migratedConfigDir = false;
+
 // Get the config directory path based on OS
 function getConfigDir() {
     const platform = os.platform();
     let configDir;
 
+    let oldConfigDir;
+
     if (platform === 'win32') {
-        configDir = path.join(os.homedir(), 'AppData', 'Roaming', 'cheating-daddy-config');
+        configDir = path.join(os.homedir(), 'AppData', 'Roaming', 'softmaster-config');
+        oldConfigDir = path.join(os.homedir(), 'AppData', 'Roaming', 'cheating-daddy-config');
     } else if (platform === 'darwin') {
-        configDir = path.join(os.homedir(), 'Library', 'Application Support', 'cheating-daddy-config');
+        configDir = path.join(os.homedir(), 'Library', 'Application Support', 'softmaster-config');
+        oldConfigDir = path.join(os.homedir(), 'Library', 'Application Support', 'cheating-daddy-config');
     } else {
-        configDir = path.join(os.homedir(), '.config', 'cheating-daddy-config');
+        configDir = path.join(os.homedir(), '.config', 'softmaster-config');
+        oldConfigDir = path.join(os.homedir(), '.config', 'cheating-daddy-config');
+    }
+
+    // Earlier versions kept their data in a folder with the old name: move it over once so nothing is lost
+    if (!migratedConfigDir) {
+        migratedConfigDir = true;
+        try {
+            if (!fs.existsSync(configDir) && fs.existsSync(oldConfigDir)) fs.renameSync(oldConfigDir, configDir);
+        } catch (error) {
+            console.error('Could not move saved settings to the new folder, using the old one:', error.message);
+            return oldConfigDir;
+        }
     }
 
     return configDir;

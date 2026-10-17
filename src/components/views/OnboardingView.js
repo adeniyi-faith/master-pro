@@ -302,9 +302,9 @@ export class OnboardingView extends LitElement {
 
     async completeOnboarding() {
         if (this.contextText.trim()) {
-            await cheatingDaddy.storage.updatePreference('customPrompt', this.contextText.trim());
+            await softMaster.storage.updatePreference('customPrompt', this.contextText.trim());
         }
-        await cheatingDaddy.storage.updateConfig('onboarded', true);
+        await softMaster.storage.updateConfig('onboarded', true);
         this.onComplete();
     }
 

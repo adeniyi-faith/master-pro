@@ -217,9 +217,9 @@ async function initializeGemini(profile = 'interview', language = 'en-US') {
         const prefs = await storage.getPreferences();
         const success = await ipcRenderer.invoke('initialize-gemini', apiKey, await buildSessionContext(prefs), profile, language);
         if (success) {
-            cheatingDaddy.setStatus('Live');
+            softMaster.setStatus('Live');
         } else {
-            cheatingDaddy.setStatus('error');
+            softMaster.setStatus('error');
         }
     }
 }
@@ -232,10 +232,10 @@ async function initializeLocal(profile = 'interview') {
 
     const success = await ipcRenderer.invoke('initialize-local', localLlmModel, whisperModel, profile, customPrompt);
     if (success) {
-        cheatingDaddy.setStatus('Local AI Live');
+        softMaster.setStatus('Local AI Live');
         return true;
     } else {
-        cheatingDaddy.setStatus('error');
+        softMaster.setStatus('error');
         return false;
     }
 }
@@ -248,17 +248,17 @@ async function initializeCloud(profile = 'interview') {
     const creds = await storage.getCredentials();
     const token = creds.cloudToken;
     if (!token || !token.trim()) {
-        cheatingDaddy.setStatus('error');
+        softMaster.setStatus('error');
         return false;
     }
 
     const prefs = await storage.getPreferences();
     const success = await ipcRenderer.invoke('initialize-cloud', token, profile, await buildSessionContext(prefs));
     if (success) {
-        cheatingDaddy.setStatus('Live');
+        softMaster.setStatus('Live');
         return true;
     } else {
-        cheatingDaddy.setStatus('error');
+        softMaster.setStatus('error');
         return false;
     }
 }
@@ -266,7 +266,7 @@ async function initializeCloud(profile = 'interview') {
 // Listen for status updates
 ipcRenderer.on('update-status', (event, status) => {
     console.log('Status update:', status);
-    cheatingDaddy.setStatus(status);
+    softMaster.setStatus(status);
 });
 
 async function startCapture(screenshotIntervalSeconds = 5, imageQuality = 'medium') {
@@ -435,7 +435,7 @@ async function startCapture(screenshotIntervalSeconds = 5, imageQuality = 'mediu
         console.log('Manual mode enabled - screenshots will be captured on demand only');
     } catch (err) {
         console.error('Error starting capture:', err);
-        cheatingDaddy.setStatus('error');
+        softMaster.setStatus('error');
     }
 }
 
@@ -624,10 +624,8 @@ async function captureScreenshot(imageQuality = 'medium', isManual = false) {
     );
 }
 
-const MANUAL_SCREENSHOT_PROMPT = `Help me on this page, give me the answer no bs, complete answer.
-So if its a code question, give me the approach in few bullet points, then the entire code. Also if theres anything else i need to know, tell me.
-If its a question about the website, give me the answer no bs, complete answer.
-If its a mcq question, give me the answer no bs, complete answer.`;
+// What to do with the screen is explained to the AI in the main process (screenshotPrompt.js)
+const MANUAL_SCREENSHOT_PROMPT = 'Help me with what is on this screen.';
 
 async function captureManualScreenshot(imageQuality = null) {
     console.log('Manual screenshot triggered');
@@ -722,7 +720,7 @@ async function captureManualScreenshot(imageQuality = null) {
                     // Response already displayed via streaming events (new-response/update-response)
                 } else {
                     console.error('Failed to get image response:', result.error);
-                    cheatingDaddy.addNewResponse(`Error: ${result.error}`);
+                    softMaster.addNewResponse(`Error: ${result.error}`);
                 }
             };
             reader.readAsDataURL(blob);
@@ -845,11 +843,11 @@ ipcRenderer.on('clear-sensitive-data', async () => {
 
 // Handle shortcuts based on current view
 function handleShortcut(shortcutKey) {
-    const currentView = cheatingDaddy.getCurrentView();
+    const currentView = softMaster.getCurrentView();
 
     if (shortcutKey === 'ctrl+enter' || shortcutKey === 'cmd+enter') {
         if (currentView === 'main') {
-            cheatingDaddy.element().handleStart();
+            softMaster.element().handleStart();
         } else {
             captureManualScreenshot();
         }
@@ -857,7 +855,7 @@ function handleShortcut(shortcutKey) {
 }
 
 // Create reference to the main app element
-const cheatingDaddyApp = document.querySelector('cheating-daddy-app');
+const softMasterApp = document.querySelector('softmaster-app');
 
 // ============ THEME SYSTEM ============
 const theme = {
@@ -1137,23 +1135,23 @@ const theme = {
     },
 };
 
-// Consolidated cheatingDaddy object - all functions in one place
-const cheatingDaddy = {
+// Consolidated softMaster object - all functions in one place
+const softMaster = {
     // App version
     getVersion: async () => ipcRenderer.invoke('get-app-version'),
 
     // Element access
-    element: () => cheatingDaddyApp,
-    e: () => cheatingDaddyApp,
+    element: () => softMasterApp,
+    e: () => softMasterApp,
 
     // App state functions - access properties directly from the app element
-    getCurrentView: () => cheatingDaddyApp.currentView,
-    getLayoutMode: () => cheatingDaddyApp.layoutMode,
+    getCurrentView: () => softMasterApp.currentView,
+    getLayoutMode: () => softMasterApp.layoutMode,
 
     // Status and response functions
-    setStatus: text => cheatingDaddyApp.setStatus(text),
-    addNewResponse: response => cheatingDaddyApp.addNewResponse(response),
-    updateCurrentResponse: response => cheatingDaddyApp.updateCurrentResponse(response),
+    setStatus: text => softMasterApp.setStatus(text),
+    addNewResponse: response => softMasterApp.addNewResponse(response),
+    updateCurrentResponse: response => softMasterApp.updateCurrentResponse(response),
 
     // Core functionality
     initializeGemini,
@@ -1180,7 +1178,7 @@ const cheatingDaddy = {
 };
 
 // Make it globally available
-window.cheatingDaddy = cheatingDaddy;
+window.softMaster = softMaster;
 
 // Double-click-and-drag to move the window, and edge handles to resize it
 if (document.readyState === 'loading') {

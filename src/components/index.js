@@ -1,5 +1,5 @@
 // Main app components
-export { CheatingDaddyApp } from './app/CheatingDaddyApp.js';
+export { SoftMasterApp } from './app/SoftMasterApp.js';
 export { AppHeader } from './app/AppHeader.js';
 
 // View components

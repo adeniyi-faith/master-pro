@@ -4,13 +4,13 @@ import { CustomizeView } from '../views/CustomizeView.js';
 import { HelpView } from '../views/HelpView.js';
 import { HistoryView } from '../views/HistoryView.js';
 import { UsageView } from '../views/UsageView.js';
+import { PracticeView } from '../views/PracticeView.js';
 import { ErrorLogView } from '../views/ErrorLogView.js';
 import { AssistantView } from '../views/AssistantView.js';
 import { OnboardingView } from '../views/OnboardingView.js';
 import { AICustomizeView } from '../views/AICustomizeView.js';
-import { FeedbackView } from '../views/FeedbackView.js';
 
-export class CheatingDaddyApp extends LitElement {
+export class SoftMasterApp extends LitElement {
     static styles = css`
         * {
             box-sizing: border-box;
@@ -62,41 +62,6 @@ export class CheatingDaddyApp extends LitElement {
 
         .top-drag-bar.hidden {
             display: none;
-        }
-
-        .traffic-lights {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 0 var(--space-md);
-            height: 100%;
-            -webkit-app-region: no-drag;
-        }
-
-        .traffic-light {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            border: none;
-            cursor: pointer;
-            padding: 0;
-            transition: opacity 0.15s ease;
-        }
-
-        .traffic-light:hover {
-            opacity: 0.8;
-        }
-
-        .traffic-light.close {
-            background: #ff5f57;
-        }
-
-        .traffic-light.minimize {
-            background: #febc2e;
-        }
-
-        .traffic-light.maximize {
-            background: #28c840;
         }
 
         .sidebar {
@@ -185,30 +150,7 @@ export class CheatingDaddyApp extends LitElement {
             -webkit-app-region: no-drag;
         }
 
-        .update-btn {
-            display: flex;
-            align-items: center;
-            gap: var(--space-sm);
-            width: 100%;
-            padding: var(--space-sm) var(--space-md);
-            border-radius: var(--radius-md);
-            border: 1px solid rgba(239, 68, 68, 0.2);
-            background: rgba(239, 68, 68, 0.08);
-            color: var(--danger);
-            font-size: var(--font-size-sm);
-            font-weight: var(--font-weight-medium);
-            cursor: pointer;
-            text-align: left;
-            transition:
-                background var(--transition),
-                border-color var(--transition);
-            animation: update-wobble 5s ease-in-out infinite;
-        }
 
-        .update-btn:hover {
-            background: rgba(239, 68, 68, 0.14);
-            border-color: rgba(239, 68, 68, 0.35);
-        }
 
         @keyframes update-wobble {
             0%,
@@ -230,11 +172,6 @@ export class CheatingDaddyApp extends LitElement {
             }
         }
 
-        .update-btn svg {
-            width: 20px;
-            height: 20px;
-            flex-shrink: 0;
-        }
 
         .version-text {
             font-size: var(--font-size-xs);
@@ -389,7 +326,6 @@ export class CheatingDaddyApp extends LitElement {
         _awaitingNewResponse: { state: true },
         shouldAnimateResponse: { type: Boolean },
         _storageLoaded: { state: true },
-        _updateAvailable: { state: true },
         _whisperDownloading: { state: true },
         _localAiDownloadProgress: { state: true },
     };
@@ -418,7 +354,6 @@ export class CheatingDaddyApp extends LitElement {
         this.shouldAnimateResponse = false;
         this._storageLoaded = false;
         this._timerInterval = null;
-        this._updateAvailable = false;
         this._whisperDownloading = false;
         this._localAiDownloadProgress = { active: false, label: '', percentage: null };
         this._localVersion = '';
@@ -429,7 +364,7 @@ export class CheatingDaddyApp extends LitElement {
 
     async _checkForUpdates() {
         try {
-            this._localVersion = await cheatingDaddy.getVersion();
+            this._localVersion = await softMaster.getVersion();
             this.requestUpdate();
         } catch (e) {
             // silently ignore
@@ -438,7 +373,7 @@ export class CheatingDaddyApp extends LitElement {
 
     async _loadFromStorage() {
         try {
-            const [config, prefs] = await Promise.all([cheatingDaddy.storage.getConfig(), cheatingDaddy.storage.getPreferences()]);
+            const [config, prefs] = await Promise.all([softMaster.storage.getConfig(), softMaster.storage.getPreferences()]);
 
             this.currentView = config.onboarded ? 'main' : 'onboarding';
             this.selectedProfile = prefs.selectedProfile || 'interview';
@@ -582,7 +517,7 @@ export class CheatingDaddyApp extends LitElement {
 
     async handleClose() {
         if (this.currentView === 'assistant') {
-            cheatingDaddy.stopCapture();
+            softMaster.stopCapture();
             if (window.require) {
                 const { ipcRenderer } = window.require('electron');
                 await ipcRenderer.invoke('close-session');
@@ -615,11 +550,11 @@ export class CheatingDaddyApp extends LitElement {
     // ── Session start ──
 
     async handleStart() {
-        const prefs = await cheatingDaddy.storage.getPreferences();
+        const prefs = await softMaster.storage.getPreferences();
         const providerMode = prefs.providerMode === 'cloud' ? 'byok' : prefs.providerMode || 'byok';
 
         if (providerMode === 'cloud') {
-            const creds = await cheatingDaddy.storage.getCredentials();
+            const creds = await softMaster.storage.getCredentials();
             if (!creds.cloudToken || creds.cloudToken.trim() === '') {
                 const mainView = this.shadowRoot.querySelector('main-view');
                 if (mainView && mainView.triggerApiKeyError) {
@@ -628,7 +563,7 @@ export class CheatingDaddyApp extends LitElement {
                 return;
             }
 
-            const success = await cheatingDaddy.initializeCloud(this.selectedProfile);
+            const success = await softMaster.initializeCloud(this.selectedProfile);
             if (!success) {
                 const mainView = this.shadowRoot.querySelector('main-view');
                 if (mainView && mainView.triggerApiKeyError) {
@@ -637,7 +572,7 @@ export class CheatingDaddyApp extends LitElement {
                 return;
             }
         } else if (providerMode === 'local') {
-            const success = await cheatingDaddy.initializeLocal(this.selectedProfile);
+            const success = await softMaster.initializeLocal(this.selectedProfile);
             if (!success) {
                 const mainView = this.shadowRoot.querySelector('main-view');
                 if (mainView && mainView.triggerApiKeyError) {
@@ -646,7 +581,7 @@ export class CheatingDaddyApp extends LitElement {
                 return;
             }
         } else {
-            const apiKey = await cheatingDaddy.storage.getApiKey();
+            const apiKey = await softMaster.storage.getApiKey();
             if (!apiKey || apiKey === '') {
                 const mainView = this.shadowRoot.querySelector('main-view');
                 if (mainView && mainView.triggerApiKeyError) {
@@ -655,10 +590,10 @@ export class CheatingDaddyApp extends LitElement {
                 return;
             }
 
-            await cheatingDaddy.initializeGemini(this.selectedProfile, this.selectedLanguage);
+            await softMaster.initializeGemini(this.selectedProfile, this.selectedLanguage);
         }
 
-        cheatingDaddy.startCapture(this.selectedScreenshotInterval, this.selectedImageQuality);
+        softMaster.startCapture(this.selectedScreenshotInterval, this.selectedImageQuality);
         this.responses = [];
         this.questions = [];
         this._pendingQuestion = '';
@@ -670,13 +605,13 @@ export class CheatingDaddyApp extends LitElement {
     }
 
     async handleCancelLocalDownload() {
-        await cheatingDaddy.cancelLocalInitialization();
+        await softMaster.cancelLocalInitialization();
     }
 
     async handleAPIKeyHelp() {
         if (window.require) {
             const { ipcRenderer } = window.require('electron');
-            await ipcRenderer.invoke('open-external', 'https://cheatingdaddy.com/help/api-key');
+            await ipcRenderer.invoke('open-external', 'https://aistudio.google.com/apikey');
         }
     }
 
@@ -691,27 +626,27 @@ export class CheatingDaddyApp extends LitElement {
 
     async handleProfileChange(profile) {
         this.selectedProfile = profile;
-        await cheatingDaddy.storage.updatePreference('selectedProfile', profile);
+        await softMaster.storage.updatePreference('selectedProfile', profile);
     }
 
     async handleLanguageChange(language) {
         this.selectedLanguage = language;
-        await cheatingDaddy.storage.updatePreference('selectedLanguage', language);
+        await softMaster.storage.updatePreference('selectedLanguage', language);
     }
 
     async handleScreenshotIntervalChange(interval) {
         this.selectedScreenshotInterval = interval;
-        await cheatingDaddy.storage.updatePreference('selectedScreenshotInterval', interval);
+        await softMaster.storage.updatePreference('selectedScreenshotInterval', interval);
     }
 
     async handleImageQualityChange(quality) {
         this.selectedImageQuality = quality;
-        await cheatingDaddy.storage.updatePreference('selectedImageQuality', quality);
+        await softMaster.storage.updatePreference('selectedImageQuality', quality);
     }
 
     async handleLayoutModeChange(layoutMode) {
         this.layoutMode = layoutMode;
-        await cheatingDaddy.storage.updateConfig('layout', layoutMode);
+        await softMaster.storage.updateConfig('layout', layoutMode);
         this.requestUpdate();
     }
 
@@ -723,7 +658,7 @@ export class CheatingDaddyApp extends LitElement {
     }
 
     async handleSendText(message) {
-        const result = await window.cheatingDaddy.sendTextMessage(message);
+        const result = await window.softMaster.sendTextMessage(message);
         if (!result.success) {
             this.setStatus('Error sending message: ' + result.error);
         } else {
@@ -803,14 +738,14 @@ export class CheatingDaddyApp extends LitElement {
                     ></customize-view>
                 `;
 
-            case 'feedback':
-                return html`<feedback-view></feedback-view>`;
-
             case 'help':
                 return html`<help-view .onExternalLinkClick=${url => this.handleExternalLinkClick(url)}></help-view>`;
 
             case 'history':
                 return html`<history-view></history-view>`;
+
+            case 'practice':
+                return html`<practice-view></practice-view>`;
 
             case 'usage':
                 return html`<usage-view .onExternalLinkClick=${url => this.handleExternalLinkClick(url)}></usage-view>`;
@@ -895,12 +830,11 @@ export class CheatingDaddyApp extends LitElement {
                 </svg>`,
             },
             {
-                id: 'feedback',
-                label: 'Feedback',
+                id: 'practice',
+                label: 'Practice',
                 icon: html`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24">
                     <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
-                        <path d="M18 4a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3h-5l-5 3v-3H6a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3zM9.5 9h.01m4.99 0h.01" />
-                        <path d="M9.5 13a3.5 3.5 0 0 0 5 0" />
+                        <path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM19 11a7 7 0 0 1-14 0m7 7v3" />
                     </g>
                 </svg>`,
             },
@@ -953,25 +887,7 @@ export class CheatingDaddyApp extends LitElement {
                     )}
                 </nav>
                 <div class="sidebar-footer">
-                    ${
-                        this._updateAvailable
-                            ? html`
-                                  <button class="update-btn" @click=${() => this.handleExternalLinkClick('https://cheatingdaddy.com/download')}>
-                                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                                          <path
-                                              fill="none"
-                                              stroke="currentColor"
-                                              stroke-linecap="round"
-                                              stroke-linejoin="round"
-                                              stroke-width="2"
-                                              d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2M7 11l5 5l5-5m-5-7v12"
-                                          />
-                                      </svg>
-                                      Update available
-                                  </button>
-                              `
-                            : html` <div class="version-text">v${this._localVersion}</div> `
-                    }
+                    <div class="version-text">v${this._localVersion}</div>
                 </div>
             </div>
         `;
@@ -1025,11 +941,6 @@ export class CheatingDaddyApp extends LitElement {
         return html`
             <div class="app-shell">
                 <div class="top-drag-bar ${isLive ? 'hidden' : ''}">
-                    <div class="traffic-lights">
-                        <button class="traffic-light close" @click=${() => this.handleClose()} title="Close"></button>
-                        <button class="traffic-light minimize" @click=${() => this._handleMinimize()} title="Minimize"></button>
-                        <button class="traffic-light maximize" title="Maximize"></button>
-                    </div>
                     <div class="drag-region"></div>
                 </div>
                 ${this.renderSidebar()}
@@ -1042,4 +953,4 @@ export class CheatingDaddyApp extends LitElement {
     }
 }
 
-customElements.define('cheating-daddy-app', CheatingDaddyApp);
+customElements.define('softmaster-app', SoftMasterApp);

@@ -766,22 +766,22 @@ export class MainView extends LitElement {
     async _loadFromStorage() {
         try {
             const [config, prefs, creds] = await Promise.all([
-                cheatingDaddy.storage.getConfig(),
-                cheatingDaddy.storage.getPreferences(),
-                cheatingDaddy.storage.getCredentials().catch(() => ({})),
+                softMaster.storage.getConfig(),
+                softMaster.storage.getPreferences(),
+                softMaster.storage.getCredentials().catch(() => ({})),
             ]);
 
             const storedMode = prefs.providerMode || 'byok';
             this._mode = storedMode === 'cloud' ? 'byok' : storedMode;
 
             if (storedMode === 'cloud') {
-                await cheatingDaddy.storage.updatePreference('providerMode', this._mode);
+                await softMaster.storage.updatePreference('providerMode', this._mode);
             }
 
             // Load keys
             this._token = creds.cloudToken || '';
-            this._geminiKey = (await cheatingDaddy.storage.getApiKey().catch(() => '')) || '';
-            this._groqKey = (await cheatingDaddy.storage.getGroqApiKey().catch(() => '')) || '';
+            this._geminiKey = (await softMaster.storage.getApiKey().catch(() => '')) || '';
+            this._groqKey = (await softMaster.storage.getGroqApiKey().catch(() => '')) || '';
             this._openaiKey = creds.openaiKey || '';
             this._geminiLiveModel = config.geminiLiveModel || 'gemini-3.1-flash-live-preview';
             this._geminiScreenshotModel = config.geminiScreenshotModel || 'gemini-3.8-flash';
@@ -936,7 +936,7 @@ export class MainView extends LitElement {
         this._mode = mode;
         this._tokenError = false;
         this._keyError = false;
-        await cheatingDaddy.storage.updatePreference('providerMode', mode);
+        await softMaster.storage.updatePreference('providerMode', mode);
         this.requestUpdate();
     }
 
@@ -944,8 +944,8 @@ export class MainView extends LitElement {
         this._token = val;
         this._tokenError = false;
         try {
-            const creds = await cheatingDaddy.storage.getCredentials().catch(() => ({}));
-            await cheatingDaddy.storage.setCredentials({ ...creds, cloudToken: val });
+            const creds = await softMaster.storage.getCredentials().catch(() => ({}));
+            await softMaster.storage.setCredentials({ ...creds, cloudToken: val });
         } catch (e) {}
         this.requestUpdate();
     }
@@ -953,31 +953,31 @@ export class MainView extends LitElement {
     async _saveGeminiKey(val) {
         this._geminiKey = val;
         this._keyError = false;
-        await cheatingDaddy.storage.setApiKey(val);
+        await softMaster.storage.setApiKey(val);
         this.requestUpdate();
     }
 
     async _saveGroqKey(val) {
         this._groqKey = val;
-        await cheatingDaddy.storage.setGroqApiKey(val);
+        await softMaster.storage.setGroqApiKey(val);
         this.requestUpdate();
     }
 
     async _saveGeminiLiveModel(val) {
         this._geminiLiveModel = val;
-        await cheatingDaddy.storage.updateConfig('geminiLiveModel', val);
+        await softMaster.storage.updateConfig('geminiLiveModel', val);
         this.requestUpdate();
     }
 
     async _saveGeminiScreenshotModel(val) {
         this._geminiScreenshotModel = val;
-        await cheatingDaddy.storage.updateConfig('geminiScreenshotModel', val);
+        await softMaster.storage.updateConfig('geminiScreenshotModel', val);
         this.requestUpdate();
     }
 
     async _saveGeminiAnswerModel(val) {
         this._geminiAnswerModel = val;
-        await cheatingDaddy.storage.updateConfig('geminiAnswerModel', val);
+        await softMaster.storage.updateConfig('geminiAnswerModel', val);
         this.requestUpdate();
     }
 
@@ -992,34 +992,34 @@ export class MainView extends LitElement {
 
     async _saveGroqModel(val) {
         this._groqModel = val;
-        await cheatingDaddy.storage.updateConfig('groqModel', val);
+        await softMaster.storage.updateConfig('groqModel', val);
         this.requestUpdate();
     }
 
     async _saveGroqImageModel(val) {
         this._groqImageModel = val;
-        await cheatingDaddy.storage.updateConfig('groqImageModel', val);
+        await softMaster.storage.updateConfig('groqImageModel', val);
         this.requestUpdate();
     }
 
     async _saveDisableGroqThinking(disabled) {
         this._disableGroqThinking = disabled;
-        await cheatingDaddy.storage.updateConfig('disableGroqThinking', disabled);
+        await softMaster.storage.updateConfig('disableGroqThinking', disabled);
         this.requestUpdate();
     }
 
     async _saveOpenaiKey(val) {
         this._openaiKey = val;
         try {
-            const creds = await cheatingDaddy.storage.getCredentials().catch(() => ({}));
-            await cheatingDaddy.storage.setCredentials({ ...creds, openaiKey: val });
+            const creds = await softMaster.storage.getCredentials().catch(() => ({}));
+            await softMaster.storage.setCredentials({ ...creds, openaiKey: val });
         } catch (e) {}
         this.requestUpdate();
     }
 
     async _saveLocalLlmModel(val) {
         this._localLlmModel = val;
-        await cheatingDaddy.storage.updatePreference('localLlmModel', val);
+        await softMaster.storage.updatePreference('localLlmModel', val);
         this.requestUpdate();
     }
 
@@ -1036,7 +1036,7 @@ export class MainView extends LitElement {
 
     async _saveWhisperModel(val) {
         this._whisperModel = val;
-        await cheatingDaddy.storage.updatePreference('whisperModel', val);
+        await softMaster.storage.updatePreference('whisperModel', val);
         this.requestUpdate();
     }
 
