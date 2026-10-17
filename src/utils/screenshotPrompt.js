@@ -6,6 +6,8 @@ const SCREENSHOT_INSTRUCTION = `SCREENSHOT TASK
 
 The user shared a screenshot of their screen during a live session. Work out what it shows and give the most useful response right now. Follow the session's profile, the user's background and the answer style given above.
 
+If there is a direct question anywhere on the screen (even at the bottom of a slide or in a chat), answer that question first, then add anything else that helps.
+
 What to do depends on what is on screen:
 - A coding or technical question: start with the approach in a few short bullets, then the complete, working code in a code block, then the time and space complexity and any edge cases worth mentioning.
 - A multiple-choice question: give the correct option (letter and text) first, then one or two lines on why. If several questions are visible, answer each in order.

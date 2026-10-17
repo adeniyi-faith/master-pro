@@ -11,6 +11,7 @@ const answerBank = require('./answerBank');
 const errorLog = require('./utils/errorLog');
 const usageTracker = require('./utils/usageTracker');
 const { setupPracticeIpcHandlers } = require('./utils/practice');
+const { setupPracticeLiveIpcHandlers } = require('./utils/practiceLive');
 
 const geminiSessionRef = { current: null };
 let mainWindow = null;
@@ -58,6 +59,7 @@ app.whenReady().then(async () => {
     createMainWindow();
     setupGeminiIpcHandlers(geminiSessionRef);
     setupPracticeIpcHandlers();
+    setupPracticeLiveIpcHandlers();
     setupStorageIpcHandlers();
     setupGeneralIpcHandlers();
 });
