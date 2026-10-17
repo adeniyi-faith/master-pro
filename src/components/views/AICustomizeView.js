@@ -1,6 +1,7 @@
 import { html, css, LitElement } from '../../assets/lit-core-2.7.4.min.js';
 import { unifiedPageStyles } from './sharedPageStyles.js';
 import './SessionPicker.js';
+import './SetupPreview.js';
 
 const questionTypes = () => window.require('./utils/questionTypes');
 
@@ -353,6 +354,18 @@ export class AICustomizeView extends LitElement {
                             Each session keeps its own company, job description, documents, answer bank and answer style. Make one per type of interview, then pick it on the Home screen before you start.
                         </div>
                         <session-picker></session-picker>
+                    </section>
+
+                    <section class="surface">
+                        <div class="surface-title">Live preview</div>
+                        <div class="surface-subtitle">This is how an answer will look on your screen with the settings below. It changes as you change them.</div>
+                        <setup-preview
+                            .profile=${this.selectedProfile}
+                            .tone=${this._prefs.answerTone}
+                            .customTone=${this._prefs.customTone}
+                            .format=${this._prefs.answerFormat}
+                            .star=${this._prefs.useStarMethod}
+                        ></setup-preview>
                     </section>
 
                     <section class="surface">
