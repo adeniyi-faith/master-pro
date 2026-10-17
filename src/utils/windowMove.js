@@ -68,47 +68,59 @@ function setUpBubble() {
     });
 }
 
-// A small always-visible strip at the top: a grip to move the window with one press-and-drag,
-// and a button that collapses the app into the bubble.
+// A small always-visible strip at the top-left: a grip to move the window with one press-and-drag,
+// a button that collapses the app into the bubble, one that hides it and one that quits.
+const ICON_SVG = {
+    grip: '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.8"/><circle cx="15" cy="6" r="1.8"/><circle cx="9" cy="12" r="1.8"/><circle cx="15" cy="12" r="1.8"/><circle cx="9" cy="18" r="1.8"/><circle cx="15" cy="18" r="1.8"/></svg>',
+    collapse: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 12h12"/></svg>',
+    hide: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/><path d="M4 4l16 16"/></svg>',
+    quit: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+};
+
 function addMoveGrip() {
     const bar = document.createElement('div');
     bar.dataset.windowChrome = '1';
     bar.style.cssText =
-        'position:fixed;top:5px;left:48px;z-index:2147483646;display:flex;gap:2px;' +
-        'align-items:center;padding:2px;border-radius:10px;background:rgba(30,30,30,.55);-webkit-app-region:no-drag;opacity:.75';
-    const grip = document.createElement('div');
-    grip.title = 'Press and drag to move the window';
-    grip.textContent = '⠿ drag';
-    grip.style.cssText = 'cursor:move;color:#ddd;font:11px sans-serif;padding:2px 8px;user-select:none';
+        'position:fixed;top:6px;left:12px;z-index:2147483646;display:flex;gap:2px;' +
+        'align-items:center;padding:2px;border-radius:10px;background:rgba(30,30,30,.55);-webkit-app-region:no-drag;opacity:.85';
+    const buttonStyle =
+        'display:flex;align-items:center;justify-content:center;min-width:32px;height:30px;padding:0 6px;border:0;border-radius:8px;' +
+        'background:transparent;color:#ddd;cursor:pointer;user-select:none;font:600 13px sans-serif';
+    const makeButton = (icon, title) => {
+        const button = document.createElement('button');
+        button.title = title;
+        button.innerHTML = ICON_SVG[icon];
+        button.style.cssText = buttonStyle;
+        button.addEventListener('mouseenter', () => (button.style.background = 'rgba(255,255,255,.14)'));
+        button.addEventListener('mouseleave', () => (button.style.background = button.dataset.armed ? '#d33' : 'transparent'));
+        return button;
+    };
+
+    const grip = makeButton('grip', 'Press and drag to move the window');
+    grip.style.cursor = 'move';
     grip.addEventListener('mousedown', event => {
         if (event.button !== 0) return;
         event.preventDefault();
         dragging = true;
         ipcRenderer.send('window-drag-start');
     });
-    const collapse = document.createElement('button');
-    collapse.title = 'Minimize to a small icon (click the icon to bring the app back)';
-    collapse.textContent = '–';
-    collapse.style.cssText =
-        'cursor:pointer;color:#ddd;background:transparent;border:0;font:700 14px sans-serif;padding:0 8px;line-height:16px';
+
+    const collapse = makeButton('collapse', 'Minimize to a small icon (click the icon to bring the app back)');
     collapse.addEventListener('click', () => ipcRenderer.send('window-collapse'));
 
-    const buttonStyle = 'cursor:pointer;color:#ddd;background:transparent;border:0;font:11px sans-serif;padding:0 8px;line-height:16px';
-    const hide = document.createElement('button');
-    hide.title = 'Hide the app completely (press the show/hide shortcut, Ctrl+\\ by default, to bring it back)';
-    hide.textContent = 'hide';
-    hide.style.cssText = buttonStyle;
+    const hide = makeButton('hide', 'Hide the app completely (press the show/hide shortcut, Ctrl+\\ by default, to bring it back)');
     hide.addEventListener('click', () => ipcRenderer.send('window-hide'));
 
     // Quitting takes two clicks so it cannot happen by accident in the middle of a session
-    const quit = document.createElement('button');
-    const quitIdle = () => {
-        quit.textContent = '✕';
-        quit.title = 'Quit the app completely';
-        quit.style.cssText = buttonStyle + ';font-weight:700;font-size:13px';
-    };
+    const quit = makeButton('quit', 'Quit the app completely');
     let quitTimer = null;
-    quitIdle();
+    const quitIdle = () => {
+        quit.innerHTML = ICON_SVG.quit;
+        quit.title = 'Quit the app completely';
+        delete quit.dataset.armed;
+        quit.style.background = 'transparent';
+        quit.style.color = '#ddd';
+    };
     quit.addEventListener('click', () => {
         if (quitTimer) {
             ipcRenderer.send('app-quit');
@@ -116,7 +128,9 @@ function addMoveGrip() {
         }
         quit.textContent = 'Quit?';
         quit.title = 'Click again to quit';
-        quit.style.cssText = buttonStyle + ';color:#fff;background:#d33;border-radius:8px;font-weight:700';
+        quit.dataset.armed = '1';
+        quit.style.background = '#d33';
+        quit.style.color = '#fff';
         quitTimer = setTimeout(() => {
             quitTimer = null;
             quitIdle();
