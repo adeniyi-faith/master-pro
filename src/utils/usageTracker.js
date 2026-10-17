@@ -7,6 +7,9 @@ const { getConfigDir } = require('../storage');
 // (US dollars per 1 million tokens), checked on 2026-10-15. Prices change, so treat the cost as an estimate:
 // the real bill is in Google AI Studio / Google Cloud Billing.
 const PRICES = [
+    // Natural voice (text to speech). Google's voice replies do not always include a token count, so the practice screen
+    // estimates it; these prices are an estimate too (text in, spoken audio out).
+    { match: /-tts/, text: 0.5, out: 10.0, outAudio: 10.0 },
     // text, image, audio: input prices. out: output price (thinking tokens count as output). outAudio: audio output
     { match: /^gemini-3\.[68]-live|^gemini-3\.1-flash-live/, text: 0.75, image: 1.0, audio: 3.0, out: 4.5, outAudio: 12.0 },
     { match: /^gemini-3\.[68]-flash$/, text: 0.75, audio: 0.75, out: 3.75 },
