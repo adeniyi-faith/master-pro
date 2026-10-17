@@ -372,7 +372,7 @@ export class CustomizeView extends LitElement {
 
     async handleQuestionPatienceSelect(e) {
         this.questionPatience = e.target.value;
-        await cheatingDaddy.storage.updatePreference('questionPatience', this.questionPatience);
+        await softMaster.storage.updatePreference('questionPatience', this.questionPatience);
         this.requestUpdate();
     }
 
