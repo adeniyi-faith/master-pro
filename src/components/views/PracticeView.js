@@ -1,6 +1,27 @@
 import { html, css, LitElement } from '../../assets/lit-core-2.7.4.min.js';
 import { unifiedPageStyles } from './sharedPageStyles.js';
 
+// True when the recording has at least about half a second of sound above background level. If the recording cannot be
+// read, it is assumed to hold speech so nothing real is thrown away.
+async function recordingHasSpeech(blob) {
+    try {
+        const context = new AudioContext();
+        const audio = await context.decodeAudioData(await blob.arrayBuffer());
+        context.close();
+        const samples = audio.getChannelData(0);
+        const window = Math.max(1, Math.round(audio.sampleRate * 0.05));
+        let loudWindows = 0;
+        for (let start = 0; start + window <= samples.length; start += window) {
+            let sum = 0;
+            for (let i = start; i < start + window; i++) sum += samples[i] * samples[i];
+            if (Math.sqrt(sum / window) > 0.012) loudWindows += 1;
+        }
+        return loudWindows >= 10;
+    } catch (error) {
+        return true;
+    }
+}
+
 // Practice mode: the app asks questions out loud, the user answers by voice or text, and gets feedback.
 export class PracticeView extends LitElement {
     static styles = [
@@ -466,6 +487,12 @@ export class PracticeView extends LitElement {
         const blob = new Blob(this._chunks, { type });
         this._releaseMic();
         if (!blob.size) return;
+        // A silent recording makes the AI invent words, so recordings with no real speech are never sent.
+        if (!(await recordingHasSpeech(blob))) {
+            this._status = '';
+            this._error = 'No speech was heard. Check your microphone, then try again or type your answer.';
+            return;
+        }
         this._status = 'Writing down what you said...';
         const buffer = new Uint8Array(await blob.arrayBuffer());
         let binary = '';

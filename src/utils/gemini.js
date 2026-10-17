@@ -152,6 +152,7 @@ function friendlyErrorMessage(error) {
 async function streamGeminiWithRetry(ai, params, onText, usageKind) {
     const maxTries = 3;
     for (let attempt = 1; ; attempt++) {
+        // Some models do not allow "thinking" to be switched off. Ask again without that setting rather than fail.
         let fullText = '';
         let usage = null;
         try {
@@ -166,6 +167,11 @@ async function streamGeminiWithRetry(ai, params, onText, usageKind) {
             if (usageKind) recordUsage(usageKind, params.model, usage);
             return fullText;
         } catch (error) {
+            if (params.config?.thinkingConfig && fullText === '' && (/thinking|budget/i.test(String(error?.message)) || error?.status === 400 || /\b400\b/.test(String(error?.message)))) {
+                params = { ...params, config: { ...params.config, thinkingConfig: undefined } };
+                attempt -= 1;
+                continue;
+            }
             const canRetry = attempt < maxTries && fullText === '' && isNetworkError(error);
             console.error(`Gemini request failed (try ${attempt} of ${maxTries}${canRetry ? ', retrying' : ''}):`, error, error?.cause || '');
             if (!canRetry) throw error;
@@ -173,6 +179,10 @@ async function streamGeminiWithRetry(ai, params, onText, usageKind) {
         }
     }
 }
+
+// Live answers start much sooner with the model's "thinking" step off (about 1.5 seconds to the first word instead of
+// 2 to 12 seconds in our tests) and read just as well, so the answer and rewrite requests ask for it.
+const NO_THINKING = { thinkingConfig: { thinkingBudget: 0 } };
 
 // One-click ways to change an answer that is already on screen
 const REWORK_INSTRUCTIONS = {
@@ -209,7 +219,7 @@ async function reworkAnswer({ question, answer, mode, requestId }) {
                 {
                     model: getGeminiAnswerModel() || 'gemini-3.5-flash-lite',
                     contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                    config: { systemInstruction: systemPrompt, ...(mode === 'search' ? { tools: [{ googleSearch: {} }] } : {}) },
+                    config: { systemInstruction: systemPrompt, ...NO_THINKING, ...(mode === 'search' ? { tools: [{ googleSearch: {} }] } : {}) },
                 },
                 text => send({ text, done: false }),
                 'rewrite'
@@ -862,7 +872,7 @@ async function sendToGeminiText(transcription) {
         let isFirst = true;
         const fullText = await streamGeminiWithRetry(
             ai,
-            { model: answerModel, contents: messages, config: { systemInstruction: systemPrompt } },
+            { model: answerModel, contents: messages, config: { systemInstruction: systemPrompt, ...NO_THINKING } },
             text => {
                 sendToRenderer(isFirst ? 'new-response' : 'update-response', text);
                 isFirst = false;
