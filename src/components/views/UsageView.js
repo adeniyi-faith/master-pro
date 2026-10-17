@@ -7,6 +7,7 @@ const KIND_LABELS = {
     notes: 'Session notes',
     screenshot: 'Screenshots',
     live: 'Live listening',
+    practice: 'Practice mode',
 };
 
 // Shows every Gemini call the app has made, the tokens used and an estimated cost

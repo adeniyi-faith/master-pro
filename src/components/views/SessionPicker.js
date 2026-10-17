@@ -91,7 +91,7 @@ export class SessionPicker extends LitElement {
 
     async _load() {
         try {
-            const { activeId, setups } = await cheatingDaddy.storage.listSetups();
+            const { activeId, setups } = await softMaster.storage.listSetups();
             this._setups = setups;
             this._activeId = activeId;
         } catch (error) {
@@ -122,15 +122,15 @@ export class SessionPicker extends LitElement {
             this._error = 'Type a name first.';
             return;
         }
-        if (this._mode === 'new') await cheatingDaddy.storage.createSetup(name);
-        else if (this._mode === 'copy') await cheatingDaddy.storage.createSetup(name, this._activeId);
-        else if (this._mode === 'rename') await cheatingDaddy.storage.renameSetup(this._activeId, name);
-        else if (this._mode === 'delete') await cheatingDaddy.storage.deleteSetup(this._activeId);
+        if (this._mode === 'new') await softMaster.storage.createSetup(name);
+        else if (this._mode === 'copy') await softMaster.storage.createSetup(name, this._activeId);
+        else if (this._mode === 'rename') await softMaster.storage.renameSetup(this._activeId, name);
+        else if (this._mode === 'delete') await softMaster.storage.deleteSetup(this._activeId);
         this._cancel();
     }
 
     async _switch(id) {
-        await cheatingDaddy.storage.activateSetup(id);
+        await softMaster.storage.activateSetup(id);
     }
 
     _renderForm() {
