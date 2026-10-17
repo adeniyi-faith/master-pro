@@ -145,6 +145,52 @@ export class PracticeView extends LitElement {
                 color: var(--text-primary);
                 margin-top: 8px;
             }
+            .bubbles {
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+                max-height: 340px;
+                overflow-y: auto;
+                padding: 4px 2px;
+                margin: 8px 0;
+            }
+            .bubble {
+                max-width: 82%;
+                padding: 8px 12px;
+                border-radius: 14px;
+                line-height: 1.45;
+                font-size: var(--font-size-sm);
+            }
+            .bubble.interviewer {
+                align-self: flex-start;
+                background: var(--bg-elevated);
+                border: 1px solid var(--border);
+                border-left: 3px solid #7c5cff;
+                color: var(--text-primary);
+            }
+            .bubble.candidate {
+                align-self: flex-end;
+                background: linear-gradient(135deg, #5b6cff, #8b5cf6);
+                color: #fff;
+            }
+            .pulse {
+                display: inline-block;
+                width: 10px;
+                height: 10px;
+                border-radius: 50%;
+                background: #34d399;
+                margin-right: 8px;
+            }
+            .pulse.talking {
+                background: #7c5cff;
+                animation: pulse 0.9s ease-in-out infinite;
+            }
+            @keyframes pulse {
+                50% {
+                    transform: scale(1.5);
+                    opacity: 0.6;
+                }
+            }
             .status {
                 color: var(--text-secondary);
                 font-size: var(--font-size-sm);
@@ -172,6 +218,11 @@ export class PracticeView extends LitElement {
         _exchanges: { state: true },
         _watchShown: { state: true }, // 0 = question only, 1 = question and answer
         _paused: { state: true },
+        _liveTurns: { state: true },
+        _liveState: { state: true },
+        _liveSeconds: { state: true },
+        _liveSpeaking: { state: true },
+        _overall: { state: true },
     };
 
     constructor() {
@@ -191,6 +242,7 @@ export class PracticeView extends LitElement {
             handsFree: false,
             followUps: true,
             saveHistory: true,
+            headphones: false,
         };
         this._questions = [];
         this._index = 0;
@@ -208,6 +260,12 @@ export class PracticeView extends LitElement {
         this._exchanges = [];
         this._watchShown = 0;
         this._paused = false;
+        this._liveTurns = [];
+        this._liveState = 'connecting';
+        this._liveSeconds = 0;
+        this._liveSpeaking = false;
+        this._overall = null;
+        this._live = null;
         this._recorder = null;
         this._chunks = [];
         this._stream = null;
@@ -232,6 +290,7 @@ export class PracticeView extends LitElement {
     }
 
     _stopEverything() {
+        this._teardownLive();
         this._stopSpeaking();
         this._clearTimer();
         this._clearVad();
@@ -356,6 +415,7 @@ export class PracticeView extends LitElement {
             this._error = 'Type the role you are practising for first (for example "Customer Support Lead").';
             return;
         }
+        if (this._setup.mode === 'live') return this._startLive();
         this._error = '';
         this._note = '';
         this._step = 'loading';
@@ -581,7 +641,7 @@ export class PracticeView extends LitElement {
         this._step = 'done';
         this._note = '';
         if (!this._setup.saveHistory) return;
-        const response = await this._ipc.invoke('practice:history-save', { role: this._setup.role, difficulty: this._setup.difficulty, mode: 'practice', results: this._results });
+        const response = await this._ipc.invoke('practice:history-save', { role: this._setup.role, difficulty: this._setup.difficulty, mode: this._setup.mode === 'live' ? 'live' : 'practice', results: this._results });
         if (response.success) {
             this._note = 'Saved to your progress.';
             this._loadHistory();
@@ -594,8 +654,187 @@ export class PracticeView extends LitElement {
         this._questions = [];
         this._results = [];
         this._exchanges = [];
+        this._overall = null;
         this._error = '';
         this._loadHistory();
+    }
+
+
+    // ---- live conversation (Gemini Live plays the interviewer) ----
+    async _startLive() {
+        if (!this._setup.role.trim()) {
+            this._error = 'Type the role you are practising for first (for example "Customer Support Lead").';
+            return;
+        }
+        this._error = '';
+        this._note = '';
+        this._step = 'loading';
+        this._status = 'Opening your microphone...';
+        let stream;
+        try {
+            stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 } });
+        } catch (error) {
+            this._step = 'setup';
+            this._error = 'The microphone could not be opened. Check that it is plugged in and allowed.';
+            return;
+        }
+        this._status = 'Connecting to the interviewer...';
+        const response = await this._ipc.invoke('practice-live:start', {
+            role: this._setup.role,
+            company: this._setup.company,
+            jobDescription: this._setup.jobDescription,
+            background: this._background,
+            difficulty: this._setup.difficulty,
+            count: this._setup.count,
+            voice: this._setup.interviewerVoice,
+        });
+        if (!response.success) {
+            stream.getTracks().forEach(t => t.stop());
+            this._step = 'setup';
+            this._error = response.error || 'Could not start the live interview.';
+            return;
+        }
+        this._liveTurns = [];
+        this._liveState = 'connected';
+        this._liveSeconds = 0;
+        this._results = [];
+        this._overall = null;
+        this._beginLiveAudio(stream);
+        this._step = 'live';
+    }
+
+    _beginLiveAudio(stream) {
+        const ipc = this._ipc;
+        const live = { stream, nextTime: 0, sources: new Set(), ended: false, endedAt: 0 };
+        this._live = live;
+
+        // microphone to Google, as 16 kHz 16-bit sound
+        live.inCtx = new AudioContext({ sampleRate: 16000 });
+        const source = live.inCtx.createMediaStreamSource(stream);
+        live.processor = live.inCtx.createScriptProcessor(2048, 1, 1);
+        live.processor.onaudioprocess = event => {
+            // Without headphones the microphone would hear the interviewer, so it is paused while the interviewer talks
+            if (!this._setup.headphones && live.outCtx && live.nextTime + 0.3 > live.outCtx.currentTime) return;
+            const input = event.inputBuffer.getChannelData(0);
+            const pcm = new Int16Array(input.length);
+            for (let i = 0; i < input.length; i++) pcm[i] = Math.max(-1, Math.min(1, input[i])) * 0x7fff;
+            const bytes = new Uint8Array(pcm.buffer);
+            let binary = '';
+            for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+            ipc.send('practice-live:audio', btoa(binary));
+        };
+        const mute = live.inCtx.createGain();
+        mute.gain.value = 0;
+        source.connect(live.processor);
+        live.processor.connect(mute);
+        mute.connect(live.inCtx.destination);
+
+        // the interviewer's voice, as 24 kHz 16-bit sound
+        live.outCtx = new AudioContext({ sampleRate: 24000 });
+        live.onAudio = (event, { data }) => {
+            const binary = atob(data);
+            const samples = new Float32Array(binary.length / 2);
+            for (let i = 0; i < samples.length; i++) {
+                let v = binary.charCodeAt(i * 2) | (binary.charCodeAt(i * 2 + 1) << 8);
+                if (v >= 0x8000) v -= 0x10000;
+                samples[i] = v / 0x8000;
+            }
+            const buffer = live.outCtx.createBuffer(1, samples.length, 24000);
+            buffer.copyToChannel(samples, 0);
+            const node = live.outCtx.createBufferSource();
+            node.buffer = buffer;
+            node.connect(live.outCtx.destination);
+            const startAt = Math.max(live.outCtx.currentTime + 0.02, live.nextTime);
+            node.start(startAt);
+            live.nextTime = startAt + buffer.duration;
+            live.sources.add(node);
+            node.onended = () => live.sources.delete(node);
+        };
+        live.onInterrupted = () => {
+            live.sources.forEach(node => {
+                try {
+                    node.stop();
+                } catch (error) {
+                    /* already stopped */
+                }
+            });
+            live.sources.clear();
+            live.nextTime = 0;
+        };
+        live.onTranscript = (event, { turns }) => {
+            this._liveTurns = turns;
+            if (turns.length && turns[turns.length - 1].role === 'interviewer' && /end of the interview/i.test(turns[turns.length - 1].text)) live.ended = true;
+            this.updateComplete.then(() => {
+                const box = this.renderRoot.querySelector('.bubbles');
+                if (box) box.scrollTop = box.scrollHeight;
+            });
+        };
+        live.onStatus = (event, { state, message }) => {
+            this._liveState = state;
+            if (message) this._status = message;
+        };
+        ipc.on('practice-live:audio', live.onAudio);
+        ipc.on('practice-live:interrupted', live.onInterrupted);
+        ipc.on('practice-live:transcript', live.onTranscript);
+        ipc.on('practice-live:status', live.onStatus);
+
+        live.tick = setInterval(() => {
+            this._liveSeconds += 1;
+            this._liveSpeaking = live.nextTime > live.outCtx.currentTime;
+            // once the interviewer has said goodbye and finished talking, the interview ends by itself
+            if (live.ended && !this._liveSpeaking) {
+                live.endedAt = live.endedAt || Date.now();
+                if (Date.now() - live.endedAt > 2500) this._endLive();
+            }
+            if (this._liveState === 'time-limit' && !this._liveSpeaking) this._endLive();
+        }, 1000);
+    }
+
+    _teardownLive() {
+        const live = this._live;
+        if (!live) return;
+        this._live = null;
+        clearInterval(live.tick);
+        const ipc = this._ipc;
+        ipc.removeListener('practice-live:audio', live.onAudio);
+        ipc.removeListener('practice-live:interrupted', live.onInterrupted);
+        ipc.removeListener('practice-live:transcript', live.onTranscript);
+        ipc.removeListener('practice-live:status', live.onStatus);
+        try {
+            live.processor.disconnect();
+            live.stream.getTracks().forEach(t => t.stop());
+            live.inCtx.close();
+            live.onInterrupted();
+            live.outCtx.close();
+        } catch (error) {
+            /* already closed */
+        }
+        // closes the connection (and stops it costing money) if it is still open
+        ipc.invoke('practice-live:stop');
+    }
+
+    async _endLive() {
+        const live = this._live;
+        if (!live) return;
+        const turns = this._liveTurns;
+        this._teardownLive();
+        this._step = 'loading';
+        this._status = 'Reviewing your interview...';
+        await this._reviewLive(turns);
+    }
+
+    async _reviewLive(turns) {
+        this._lastTurns = turns;
+        const response = await this._ipc.invoke('practice:live-review', { turns, role: this._setup.role, background: this._background, difficulty: this._setup.difficulty });
+        if (!response.success) {
+            this._step = 'livefailed';
+            this._error = response.error;
+            return;
+        }
+        const review = response.review;
+        this._results = review.questions;
+        this._overall = { score: review.overallScore, summary: review.overallSummary };
+        this._finish();
     }
 
     // ---- "AI plays both sides" ----
@@ -661,6 +900,8 @@ export class PracticeView extends LitElement {
     _renderSetup() {
         const s = this._setup;
         const watch = s.mode === 'watch';
+        const live = s.mode === 'live';
+        const single = s.mode === 'practice';
         return html`
             <section class="surface">
                 <div class="surface-title">Practice interview</div>
@@ -671,7 +912,8 @@ export class PracticeView extends LitElement {
                     <div class="form-group">
                         <label class="form-label">Mode</label>
                         <select class="control" @change=${e => this._set('mode', e.target.value)}>
-                            <option value="practice" ?selected=${!watch}>You answer (scored)</option>
+                            <option value="practice" ?selected=${s.mode === 'practice'}>You answer, one question at a time (scored)</option>
+                            <option value="live" ?selected=${live}>Live conversation by voice</option>
                             <option value="watch" ?selected=${watch}>Watch the AI do both sides</option>
                         </select>
                     </div>
@@ -690,7 +932,7 @@ export class PracticeView extends LitElement {
                     <div class="form-group">
                         <label class="form-label">Number of questions</label>
                         <select class="control" @change=${e => this._set('count', Number(e.target.value))}>
-                            ${(watch ? [2, 3, 4, 6] : [3, 5, 8, 10]).map(n => html`<option value=${n} ?selected=${s.count === n}>${n}</option>`)}
+                            ${(watch ? [2, 3, 4, 6] : live ? [3, 4, 5, 6] : [3, 5, 8, 10]).map(n => html`<option value=${n} ?selected=${s.count === n}>${n}</option>`)}
                         </select>
                     </div>
                     <div class="form-group">
@@ -711,7 +953,7 @@ export class PracticeView extends LitElement {
                             <option value="hard" ?selected=${s.difficulty === 'hard'}>Hard (strict, tough follow-ups)</option>
                         </select>
                     </div>
-                    ${watch
+                    ${!single
                         ? ''
                         : html`
                               <div class="form-group">
@@ -738,15 +980,23 @@ export class PracticeView extends LitElement {
                                   <input type="checkbox" .checked=${s.handsFree} @change=${e => this._set('handsFree', e.target.checked)} />
                               </label>
                           `}
-                    <div class="form-group">
+                    ${live
+                        ? html`<label class="form-group" style="cursor: pointer;">
+                              <span>
+                                  <span class="form-label" style="cursor: pointer;">I am using headphones</span>
+                                  <div class="form-help">With headphones you can interrupt the interviewer, like a real call. Without them the microphone pauses while the interviewer talks, so it does not hear itself.</div>
+                              </span>
+                              <input type="checkbox" .checked=${s.headphones} @change=${e => this._set('headphones', e.target.checked)} />
+                          </label>`
+                        : html`<div class="form-group">
                         <label class="form-label">Voice</label>
                         <select class="control" @change=${e => this._set('voice', e.target.value)}>
                             <option value="gemini" ?selected=${s.voice === 'gemini'}>Natural voice (uses your Gemini key)</option>
                             <option value="computer" ?selected=${s.voice === 'computer'}>Computer voice (free, robotic)</option>
                             <option value="off" ?selected=${s.voice === 'off'}>No voice (read only)</option>
                         </select>
-                    </div>
-                    ${s.voice === 'gemini'
+                    </div>`}
+                    ${live || s.voice === 'gemini'
                         ? html`<div class="form-group">
                               <label class="form-label">Interviewer's voice</label>
                               <select class="control" @change=${e => this._set('interviewerVoice', e.target.value)}>
@@ -765,7 +1015,7 @@ export class PracticeView extends LitElement {
                           </label>`}
                 </div>
                 <div class="row" style="margin-top: 12px;">
-                    <button class="btn primary" @click=${this._start}>${watch ? 'Start the sample interview' : 'Start practice'}</button>
+                    <button class="btn primary" @click=${this._start}>${watch ? 'Start the sample interview' : live ? 'Start the live interview' : 'Start practice'}</button>
                 </div>
                 ${this._error ? html`<div class="error">${this._error}</div>` : ''}
             </section>
@@ -775,7 +1025,7 @@ export class PracticeView extends LitElement {
 
     _renderProgress() {
         if (!this._history.length && !this._best.length) return '';
-        const recent = this._history.filter(h => h.mode === 'practice').slice(0, 6);
+        const recent = this._history.filter(h => h.mode !== 'listen').slice(0, 6);
         return html`
             <section class="surface">
                 <div class="surface-title">Your progress</div>
@@ -855,12 +1105,59 @@ export class PracticeView extends LitElement {
         return html`
             <section class="surface">
                 <div class="surface-title">Practice finished</div>
-                <div class="score">${average.toFixed(1)}<small> / 10 average over ${this._results.length} question${this._results.length === 1 ? '' : 's'}</small></div>
-                <ul class="points">
-                    ${this._results.map(r => html`<li><strong>${r.score}/10</strong> · ${r.question}</li>`)}
-                </ul>
+                ${this._overall
+                    ? html`<div class="score">${this._overall.score}<small> / 10 overall</small></div><div>${this._overall.summary}</div>`
+                    : html`<div class="score">${average.toFixed(1)}<small> / 10 average over ${this._results.length} question${this._results.length === 1 ? '' : 's'}</small></div>`}
+                ${this._overall
+                    ? this._results.map(
+                          r => html`<div class="heading">${r.score}/10 · ${r.question}</div>
+                              <div class="muted" style="margin:4px 0;">${r.summary}</div>
+                              ${r.improvements.length ? html`<ul class="points">${r.improvements.map(i => html`<li>${i}</li>`)}</ul>` : ''}
+                              ${r.betterAnswer ? html`<div class="better">${r.betterAnswer}</div>` : ''}`
+                      )
+                    : html`<ul class="points">${this._results.map(r => html`<li><strong>${r.score}/10</strong> · ${r.question}</li>`)}</ul>`}
                 ${this._note ? html`<div class="status">${this._note}</div>` : ''}
                 <div class="row"><button class="btn primary" @click=${this._restart}>Practise again</button></div>
+            </section>
+        `;
+    }
+
+
+    _renderLive() {
+        const m = Math.floor(this._liveSeconds / 60);
+        const sec = String(this._liveSeconds % 60).padStart(2, '0');
+        const state = this._liveState;
+        const label = state === 'reconnecting' ? 'Reconnecting...' : state === 'lost' ? 'Connection lost' : state === 'error' ? 'Connection problem' : this._liveSpeaking ? 'Interviewer is speaking' : 'Your turn: just speak';
+        return html`
+            <section class="surface">
+                <div class="row" style="justify-content: space-between;">
+                    <div><span class="pulse ${this._liveSpeaking ? 'talking' : ''}"></span>${label}</div>
+                    <div class="timer">${m}:${sec}</div>
+                </div>
+                <div class="bubbles">
+                    ${this._liveTurns.length
+                        ? this._liveTurns.map(t => html`<div class="bubble ${t.role}">${t.text}</div>`)
+                        : html`<div class="status">The interviewer is about to start. Speak naturally when it is your turn.</div>`}
+                </div>
+                ${this._status && state !== 'connected' ? html`<div class="status">${this._status}</div>` : ''}
+                <div class="row" style="margin-top: 8px;">
+                    <button class="btn primary" @click=${this._endLive}>End interview and get my review</button>
+                </div>
+                <div class="form-help" style="margin-top: 8px;">${this._setup.headphones ? 'You can interrupt the interviewer at any time.' : 'Wait for the interviewer to finish before you answer (use headphones to interrupt).'} The interview stops by itself after 20 minutes.</div>
+            </section>
+        `;
+    }
+
+    _renderLiveFailed() {
+        return html`
+            <section class="surface">
+                <div class="surface-title">The review could not be made</div>
+                <div class="error">${this._error}</div>
+                <div class="bubbles">${(this._lastTurns || []).map(t => html`<div class="bubble ${t.role}">${t.text}</div>`)}</div>
+                <div class="row">
+                    <button class="btn primary" @click=${() => { this._step = 'loading'; this._status = 'Reviewing your interview...'; this._reviewLive(this._lastTurns || []); }}>Try the review again</button>
+                    <button class="btn" @click=${this._restart}>Back</button>
+                </div>
             </section>
         `;
     }
@@ -904,6 +1201,8 @@ export class PracticeView extends LitElement {
         else if (this._step === 'feedback') body = this._renderFeedback();
         else if (this._step === 'watch') body = this._renderWatch();
         else if (this._step === 'watchdone') body = this._renderWatchDone();
+        else if (this._step === 'live') body = this._renderLive();
+        else if (this._step === 'livefailed') body = this._renderLiveFailed();
         else body = this._renderDone();
         return html`
             <div class="unified-page">
