@@ -171,7 +171,7 @@ export class AICustomizeView extends LitElement {
 
     async _loadFromStorage() {
         try {
-            const prefs = await cheatingDaddy.storage.getPreferences();
+            const prefs = await softMaster.storage.getPreferences();
             this._context = prefs.customPrompt || '';
             this._autoType = prefs.autoQuestionType !== false;
             this._typeEdits = prefs.questionTypePrompts || {};
@@ -276,12 +276,12 @@ export class AICustomizeView extends LitElement {
 
     async _savePref(key, val) {
         this._prefs = { ...this._prefs, [key]: val };
-        await cheatingDaddy.storage.updatePreference(key, val);
+        await softMaster.storage.updatePreference(key, val);
     }
 
     async _saveAutoType(on) {
         this._autoType = on;
-        await cheatingDaddy.storage.updatePreference('autoQuestionType', on);
+        await softMaster.storage.updatePreference('autoQuestionType', on);
     }
 
     // Saves an edit for one question type. Text that matches the default is not stored.
@@ -290,7 +290,7 @@ export class AICustomizeView extends LitElement {
         if (text.trim() === '' || text.trim() === type.prompt) delete edits[type.id];
         else edits[type.id] = text;
         this._typeEdits = edits;
-        await cheatingDaddy.storage.updatePreference('questionTypePrompts', edits);
+        await softMaster.storage.updatePreference('questionTypePrompts', edits);
     }
 
     async _saveTypeTone(type, tone) {
@@ -298,7 +298,7 @@ export class AICustomizeView extends LitElement {
         if (!tone) delete tones[type.id];
         else tones[type.id] = tone;
         this._typeTones = tones;
-        await cheatingDaddy.storage.updatePreference('questionTypeTones', tones);
+        await softMaster.storage.updatePreference('questionTypeTones', tones);
     }
 
     async _resetTypePrompt(type) {
@@ -308,13 +308,13 @@ export class AICustomizeView extends LitElement {
     async _resetAllTypePrompts() {
         this._typeEdits = {};
         this._typeTones = {};
-        await cheatingDaddy.storage.updatePreference('questionTypePrompts', {});
-        await cheatingDaddy.storage.updatePreference('questionTypeTones', {});
+        await softMaster.storage.updatePreference('questionTypePrompts', {});
+        await softMaster.storage.updatePreference('questionTypeTones', {});
     }
 
     async _saveContext(val) {
         this._context = val;
-        await cheatingDaddy.storage.updatePreference('customPrompt', val);
+        await softMaster.storage.updatePreference('customPrompt', val);
     }
 
     _getProfileName(profile) {

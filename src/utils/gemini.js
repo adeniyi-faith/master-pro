@@ -7,6 +7,7 @@ const { recordUsage } = require('./usageTracker');
 const { getSession, saveSession, getAvailableModel, incrementLimitCount, getApiKey, getGroqApiKey, incrementCharUsage, getConfig, getPreferences } = require('../storage');
 const { connectCloud, sendCloudAudio, sendCloudText, sendCloudImage, closeCloud, isCloudActive, setOnTurnComplete } = require('./cloud');
 const { startTransportLog, logTransportEvent, closeTransportLog } = require('./transportLogger');
+const { SCREENSHOT_INSTRUCTION, DEFAULT_SCREENSHOT_PROMPT } = require('./screenshotPrompt');
 
 // Lazy-loaded to avoid circular dependency (localai.js imports from gemini.js)
 let _localai = null;
@@ -693,11 +694,11 @@ async function sendImageToGroq(base64Data, prompt) {
             body: JSON.stringify({
                 model,
                 messages: [
-                    { role: 'system', content: currentSystemPrompt || 'You are a helpful assistant.' },
+                    { role: 'system', content: getScreenshotSystemPrompt() },
                     {
                         role: 'user',
                         content: [
-                            { type: 'text', text: prompt },
+                            { type: 'text', text: (prompt || '').trim() || DEFAULT_SCREENSHOT_PROMPT },
                             {
                                 type: 'image_url',
                                 image_url: {
@@ -1305,14 +1306,21 @@ ${transcript}`;
     }
 }
 
+// The session's instructions (profile, resume, answer style) plus what to do with a screenshot
+function getScreenshotSystemPrompt() {
+    return `${currentSystemPrompt || 'You are a helpful assistant.'}\n\n${SCREENSHOT_INSTRUCTION}`;
+}
+
 async function sendImageToGeminiHttp(base64Data, prompt) {
-    // Get available model based on rate limits
+    // The screenshot model chosen in Settings
     const model = getAvailableModel();
 
     const apiKey = getApiKey();
     if (!apiKey) {
         return { success: false, error: 'No API key configured' };
     }
+
+    const userPrompt = (prompt || '').trim() || DEFAULT_SCREENSHOT_PROMPT;
 
     try {
         const ai = new GoogleGenAI({ apiKey: apiKey });
@@ -1324,43 +1332,32 @@ async function sendImageToGeminiHttp(base64Data, prompt) {
                     data: base64Data,
                 },
             },
-            { text: prompt },
+            { text: userPrompt },
         ];
 
         console.log(`Sending image to ${model} (streaming)...`);
-        const response = await ai.models.generateContentStream({
-            model: model,
-            contents: contents,
-        });
-
-        // Increment count after successful call
-        incrementLimitCount(model);
-
-        // Stream the response
-        let fullText = '';
         let isFirst = true;
-        let imageUsage = null;
-        for await (const chunk of response) {
-            if (chunk.usageMetadata) imageUsage = chunk.usageMetadata;
-            const chunkText = chunk.text;
-            if (chunkText) {
-                fullText += chunkText;
+        const fullText = await streamGeminiWithRetry(
+            ai,
+            { model, contents, config: { systemInstruction: getScreenshotSystemPrompt() } },
+            text => {
                 // Send to renderer - new response for first chunk, update for subsequent
-                sendToRenderer(isFirst ? 'new-response' : 'update-response', fullText);
+                sendToRenderer(isFirst ? 'new-response' : 'update-response', text);
                 isFirst = false;
-            }
-        }
+            },
+            'screenshot'
+        );
 
-        recordUsage('screenshot', model, imageUsage);
+        incrementLimitCount(model);
         console.log(`Image response completed from ${model}`);
 
         // Save screen analysis to history
-        saveScreenAnalysis(prompt, fullText, model);
+        saveScreenAnalysis(userPrompt, fullText, model);
 
         return { success: true, text: fullText, model: model };
     } catch (error) {
         console.error('Error sending image to Gemini HTTP:', error);
-        return { success: false, error: error.message };
+        return { success: false, error: friendlyErrorMessage(error) };
     }
 }
 

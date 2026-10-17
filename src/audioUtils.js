@@ -90,7 +90,7 @@ function analyzeAudioBuffer(buffer, label = 'Audio') {
 // Save audio buffer with metadata for debugging
 function saveDebugAudio(buffer, type, timestamp = Date.now()) {
     const homeDir = require('os').homedir();
-    const debugDir = path.join(homeDir, 'cheating-daddy-debug');
+    const debugDir = path.join(homeDir, 'softmaster-debug');
 
     if (!fs.existsSync(debugDir)) {
         fs.mkdirSync(debugDir, { recursive: true });

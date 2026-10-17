@@ -224,12 +224,12 @@ export class CustomizeView extends LitElement {
     }
 
     getThemes() {
-        return cheatingDaddy.theme.getAll();
+        return softMaster.theme.getAll();
     }
 
     async _loadFromStorage() {
         try {
-            const [prefs, keybinds] = await Promise.all([cheatingDaddy.storage.getPreferences(), cheatingDaddy.storage.getKeybinds()]);
+            const [prefs, keybinds] = await Promise.all([softMaster.storage.getPreferences(), softMaster.storage.getKeybinds()]);
             this.googleSearchEnabled = prefs.googleSearchEnabled ?? true;
             this.englishOnly = prefs.englishOnly ?? false;
             this.backgroundTransparency = prefs.backgroundTransparency ?? 0.8;
@@ -296,7 +296,7 @@ export class CustomizeView extends LitElement {
     }
 
     getDefaultKeybinds() {
-        const isMac = cheatingDaddy.isMacOS || navigator.platform.includes('Mac');
+        const isMac = softMaster.isMacOS || navigator.platform.includes('Mac');
         return {
             moveUp: isMac ? 'Alt+Up' : 'Ctrl+Up',
             moveDown: isMac ? 'Alt+Down' : 'Ctrl+Down',
@@ -329,7 +329,7 @@ export class CustomizeView extends LitElement {
     }
 
     async saveKeybinds() {
-        await cheatingDaddy.storage.setKeybinds(this.keybinds);
+        await softMaster.storage.setKeybinds(this.keybinds);
         if (window.require) {
             const { ipcRenderer } = window.require('electron');
             ipcRenderer.send('update-keybinds', this.keybinds);
@@ -358,31 +358,31 @@ export class CustomizeView extends LitElement {
 
     async handleCustomPromptInput(e) {
         this.customPrompt = e.target.value;
-        await cheatingDaddy.storage.updatePreference('customPrompt', this.customPrompt);
+        await softMaster.storage.updatePreference('customPrompt', this.customPrompt);
     }
 
     async handleAudioModeSelect(e) {
         this.audioMode = e.target.value;
-        await cheatingDaddy.storage.updatePreference('audioMode', this.audioMode);
+        await softMaster.storage.updatePreference('audioMode', this.audioMode);
         this.requestUpdate();
     }
 
     async handleEndOfSpeechSelect(e) {
         this.endOfSpeech = e.target.value;
-        await cheatingDaddy.storage.updatePreference('endOfSpeech', this.endOfSpeech);
+        await softMaster.storage.updatePreference('endOfSpeech', this.endOfSpeech);
         this.requestUpdate();
     }
 
     async handleThemeChange(e) {
         this.theme = e.target.value;
-        await cheatingDaddy.theme.save(this.theme);
+        await softMaster.theme.save(this.theme);
         this.updateBackgroundAppearance();
         this.requestUpdate();
     }
 
     async handleGoogleSearchChange(e) {
         this.googleSearchEnabled = e.target.checked;
-        await cheatingDaddy.storage.updatePreference('googleSearchEnabled', this.googleSearchEnabled);
+        await softMaster.storage.updatePreference('googleSearchEnabled', this.googleSearchEnabled);
         if (window.require) {
             try {
                 const { ipcRenderer } = window.require('electron');
@@ -396,19 +396,19 @@ export class CustomizeView extends LitElement {
 
     async handleBackgroundTransparencyChange(e) {
         this.backgroundTransparency = parseFloat(e.target.value);
-        await cheatingDaddy.storage.updatePreference('backgroundTransparency', this.backgroundTransparency);
+        await softMaster.storage.updatePreference('backgroundTransparency', this.backgroundTransparency);
         this.updateBackgroundAppearance();
         this.requestUpdate();
     }
 
     updateBackgroundAppearance() {
-        const colors = cheatingDaddy.theme.get(this.theme);
-        cheatingDaddy.theme.applyBackgrounds(colors.background, this.backgroundTransparency);
+        const colors = softMaster.theme.get(this.theme);
+        softMaster.theme.applyBackgrounds(colors.background, this.backgroundTransparency);
     }
 
     async handleFontSizeChange(e) {
         this.fontSize = parseInt(e.target.value, 10);
-        await cheatingDaddy.storage.updatePreference('fontSize', this.fontSize);
+        await softMaster.storage.updatePreference('fontSize', this.fontSize);
         this.updateFontSize();
         this.requestUpdate();
     }
@@ -475,7 +475,7 @@ export class CustomizeView extends LitElement {
 
     async resetKeybinds() {
         this.keybinds = this.getDefaultKeybinds();
-        await cheatingDaddy.storage.setKeybinds(null);
+        await softMaster.storage.setKeybinds(null);
         if (window.require) {
             const { ipcRenderer } = window.require('electron');
             ipcRenderer.send('update-keybinds', this.keybinds);
@@ -505,12 +505,12 @@ export class CustomizeView extends LitElement {
                 theme: 'dark',
             };
             for (const [key, value] of Object.entries(defaults)) {
-                await cheatingDaddy.storage.updatePreference(key, value);
+                await softMaster.storage.updatePreference(key, value);
             }
 
             // Restore keybinds
             this.keybinds = this.getDefaultKeybinds();
-            await cheatingDaddy.storage.setKeybinds(null);
+            await softMaster.storage.setKeybinds(null);
             if (window.require) {
                 const { ipcRenderer } = window.require('electron');
                 ipcRenderer.send('update-keybinds', this.keybinds);
@@ -537,7 +537,7 @@ export class CustomizeView extends LitElement {
             // Apply visual changes
             this.updateBackgroundAppearance();
             this.updateFontSize();
-            await cheatingDaddy.theme.save(defaults.theme);
+            await softMaster.theme.save(defaults.theme);
 
             this.clearStatusMessage = 'All settings restored to defaults';
             this.clearStatusType = 'success';
@@ -558,7 +558,7 @@ export class CustomizeView extends LitElement {
         this.clearStatusType = '';
         this.requestUpdate();
         try {
-            await cheatingDaddy.storage.clearAll();
+            await softMaster.storage.clearAll();
             this.clearStatusMessage = 'Successfully cleared all local data';
             this.clearStatusType = 'success';
             this.requestUpdate();
@@ -640,7 +640,7 @@ export class CustomizeView extends LitElement {
                                 .checked=${this.englishOnly}
                                 @change=${async e => {
                                     this.englishOnly = e.target.checked;
-                                    await cheatingDaddy.storage.updatePreference('englishOnly', this.englishOnly);
+                                    await softMaster.storage.updatePreference('englishOnly', this.englishOnly);
                                 }}
                             />
                             <label class="toggle-label" for="englishOnly">Only answer English</label>
