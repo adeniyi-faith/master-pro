@@ -47,6 +47,7 @@ const DEFAULT_PREFERENCES = {
     googleSearchEnabled: false,
     localLlmModel: 'unsloth/Qwen3.5-4B-GGUF:Q4_K_M',
     whisperModel: 'tiny.en',
+    practiceSaveHistory: true,
 };
 
 const DEFAULT_KEYBINDS = null; // null means use system defaults
