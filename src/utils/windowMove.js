@@ -37,9 +37,14 @@ function setUpBubble() {
     bubbleEl.title = 'Click to bring SoftMaster back';
     bubbleEl.style.cssText =
         'position:fixed;inset:0;z-index:2147483647;display:none;align-items:center;justify-content:center;' +
-        'border-radius:50%;background:#1f6feb;color:#fff;font:700 22px sans-serif;cursor:pointer;' +
-        'user-select:none;-webkit-app-region:no-drag;box-shadow:inset 0 0 0 3px rgba(255,255,255,.6)';
-    bubbleEl.textContent = 'SM';
+        'background:transparent;cursor:pointer;user-select:none;-webkit-app-region:no-drag';
+    // the app logo (it already has its own rounded shape, so no circle or background behind it)
+    const logo = document.createElement('img');
+    logo.src = 'assets/logo.png';
+    logo.alt = 'SoftMaster PRO';
+    logo.draggable = false;
+    logo.style.cssText = 'width:100%;height:100%;object-fit:contain;pointer-events:none';
+    bubbleEl.appendChild(logo);
     let pressAt = null;
     bubbleEl.addEventListener('mousedown', event => {
         if (event.button !== 0) return;
