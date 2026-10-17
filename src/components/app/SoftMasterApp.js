@@ -64,41 +64,6 @@ export class SoftMasterApp extends LitElement {
             display: none;
         }
 
-        .traffic-lights {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 0 var(--space-md);
-            height: 100%;
-            -webkit-app-region: no-drag;
-        }
-
-        .traffic-light {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            border: none;
-            cursor: pointer;
-            padding: 0;
-            transition: opacity 0.15s ease;
-        }
-
-        .traffic-light:hover {
-            opacity: 0.8;
-        }
-
-        .traffic-light.close {
-            background: #ff5f57;
-        }
-
-        .traffic-light.minimize {
-            background: #febc2e;
-        }
-
-        .traffic-light.maximize {
-            background: #28c840;
-        }
-
         .sidebar {
             width: var(--sidebar-width);
             min-width: var(--sidebar-width);
@@ -961,11 +926,6 @@ export class SoftMasterApp extends LitElement {
         return html`
             <div class="app-shell">
                 <div class="top-drag-bar ${isLive ? 'hidden' : ''}">
-                    <div class="traffic-lights">
-                        <button class="traffic-light close" @click=${() => this.handleClose()} title="Close"></button>
-                        <button class="traffic-light minimize" @click=${() => this._handleMinimize()} title="Minimize"></button>
-                        <button class="traffic-light maximize" title="Maximize"></button>
-                    </div>
                     <div class="drag-region"></div>
                 </div>
                 ${this.renderSidebar()}
