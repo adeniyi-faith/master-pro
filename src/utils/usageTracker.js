@@ -20,7 +20,7 @@ const PRICES = [
 ];
 
 const MAX_LINES_READ = 50000;
-const KINDS = new Set(['answer', 'rewrite', 'notes', 'screenshot', 'live']);
+const KINDS = new Set(['answer', 'rewrite', 'notes', 'screenshot', 'live', 'practice']);
 
 function usageFilePath() {
     return path.join(getConfigDir(), 'usage.jsonl');
@@ -69,7 +69,7 @@ function summarizeUsage(model, usage) {
     };
 }
 
-// kind: 'answer' | 'rewrite' | 'notes' | 'screenshot' | 'live'
+// kind: 'answer' | 'rewrite' | 'notes' | 'screenshot' | 'live' | 'practice'
 function recordUsage(kind, model, usage) {
     try {
         if (!usage || !KINDS.has(kind)) return;
