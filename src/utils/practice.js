@@ -251,6 +251,27 @@ Group the conversation into the main questions (a follow-up belongs with its mai
 
 // ---- Voice (Gemini speech). Returns a WAV file as base64, or throws so the screen can fall back to the computer's voice. ----
 const speechCache = new Map();
+
+// Counts the natural voice in "Usage & cost". Uses Google's token count when the reply has one; otherwise estimates it:
+// about 1 token per 4 letters read in, and about 25 tokens per second of speech out (the WAV is 24,000 samples a second, 2 bytes each).
+function recordSpeechUsage(data, text, audioBase64) {
+    try {
+        const u = data?.usage || data?.usageMetadata || {};
+        const inTokens = Number(u.total_input_tokens ?? u.input_tokens ?? u.promptTokenCount) || Math.ceil(text.length / 4);
+        let outTokens = Number(u.total_output_tokens ?? u.output_tokens ?? u.candidatesTokenCount) || 0;
+        if (!outTokens) {
+            const seconds = Math.max(0, (audioBase64.length * 0.75 - 44) / 48000);
+            outTokens = Math.ceil(seconds * 25);
+        }
+        recordUsage('practice', TTS_MODEL, {
+            promptTokenCount: inTokens,
+            candidatesTokenCount: outTokens,
+            candidatesTokensDetails: [{ modality: 'AUDIO', tokenCount: outTokens }],
+        });
+    } catch {
+        // counting must never stop the voice
+    }
+}
 async function speak({ text, voice, style }) {
     const clean = clip(text, MAX_SPEECH_CHARS).trim();
     if (!clean) throw new Error('Nothing to say.');
@@ -279,6 +300,7 @@ async function speak({ text, voice, style }) {
         for (const part of step.content || []) if (part.type === 'audio' && part.data) audio = part.data;
     }
     if (!audio) throw new Error('The voice service sent no audio.');
+    recordSpeechUsage(data, clean, audio);
     const result = { audio, mimeType: 'audio/wav' };
     if (speechCache.size >= 60) speechCache.delete(speechCache.keys().next().value);
     speechCache.set(key, result);
