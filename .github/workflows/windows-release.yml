@@ -42,7 +42,10 @@ jobs:
         continue-on-error: true
         shell: pwsh
         run: |
+          # The installer builder is an "optional" extra that the install step above skips, so add it back here.
+          npm install --no-save electron-winstaller@5
           npx electron-forge make --platform=win32 --arch=x64 --skip-package --targets=@electron-forge/maker-squirrel
+          if ($LASTEXITCODE -ne 0) { throw "The installer build failed." }
           $setup = Get-ChildItem -Path out/make -Recurse -Filter "*Setup.exe" | Select-Object -First 1
           Copy-Item $setup.FullName "SoftMaster-PRO-Setup.exe"
 
