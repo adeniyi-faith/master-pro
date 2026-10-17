@@ -36,6 +36,19 @@ jobs:
         shell: pwsh
         run: Compress-Archive -Path "out/SoftMaster PRO-win32-x64" -DestinationPath SoftMaster-PRO-windows-x64.zip
 
+      # A single installer file (Setup.exe). If this step fails, the zip above is still published.
+      - name: Make the single-file installer
+        id: installer
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          # The installer builder is an "optional" extra that the install step above skips, so add it back here.
+          npm install --no-save electron-winstaller@5
+          npx electron-forge make --platform=win32 --arch=x64 --skip-package --targets=@electron-forge/maker-squirrel
+          if ($LASTEXITCODE -ne 0) { throw "The installer build failed." }
+          $setup = Get-ChildItem -Path out/make -Recurse -Filter "*Setup.exe" | Select-Object -First 1
+          Copy-Item $setup.FullName "SoftMaster-PRO-Setup.exe"
+
       - name: Publish the release
         shell: pwsh
         env:
@@ -43,4 +56,6 @@ jobs:
         run: |
           $short = "${{ github.sha }}".Substring(0, 7)
           $tag = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}" } else { "windows-build-$short" }
-          gh release create $tag SoftMaster-PRO-windows-x64.zip --title "SoftMaster PRO ($tag)" --notes "Windows download. Unzip, then double-click SoftMaster PRO.exe." --target "${{ github.sha }}"
+          $files = @("SoftMaster-PRO-windows-x64.zip")
+          if (Test-Path "SoftMaster-PRO-Setup.exe") { $files += "SoftMaster-PRO-Setup.exe" }
+          gh release create $tag $files --title "SoftMaster PRO ($tag)" --notes "Windows download. Easiest: download SoftMaster-PRO-Setup.exe and double-click it. Or download the zip, unzip it, then double-click SoftMaster PRO.exe." --target "${{ github.sha }}"
