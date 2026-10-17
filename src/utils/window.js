@@ -1,4 +1,5 @@
-const { app, BrowserWindow, globalShortcut, ipcMain, screen } = require('electron');
+const { app, BrowserWindow, globalShortcut, ipcMain, screen, dialog } = require('electron');
+const os = require('node:os');
 const path = require('node:path');
 const storage = require('../storage');
 
@@ -6,6 +7,33 @@ let mouseEventsIgnored = false;
 
 const DEFAULT_MAIN_WINDOW_SIZE = { width: 1100, height: 800 };
 const MIN_WINDOW_SIZE = { width: 700, height: 320 };
+
+// On Windows 10 older than version 2004 (build 19041), Windows cannot leave a window out of screen captures:
+// it shows as a black box instead. Returns true for those versions.
+function isWindowsTooOldToHideFromCapture(release = os.release(), platform = process.platform) {
+    if (platform !== 'win32') return false;
+    const [major, , build] = String(release).split('.').map(Number);
+    return major === 10 && Number.isFinite(build) && build < 19041;
+}
+
+function warnIfOldWindows(mainWindow) {
+    if (!isWindowsTooOldToHideFromCapture()) return;
+    console.error(`Old Windows detected (${os.release()}): the window will show as a black box when the screen is shared`);
+    dialog
+        .showMessageBox(mainWindow, {
+            type: 'warning',
+            title: 'SoftMaster on this version of Windows',
+            message: 'On this version of Windows, SoftMaster shows as a black box when you share your screen.',
+            detail:
+                'Windows only learned to leave a window out of screen sharing in version 2004 (2020).\n\n' +
+                'What you can do:\n' +
+                '1. Update Windows (free), then SoftMaster stays out of the shared screen.\n' +
+                '2. Or share only the meeting window, not your whole screen.\n\n' +
+                'To hide SoftMaster instantly at any time, press Ctrl+\\ .',
+            buttons: ['OK'],
+        })
+        .catch(() => {});
+}
 
 // New window position and size for a mouse drag of (dx, dy). With no edge the window is moved;
 // with an edge such as 'right', 'bottom-left' or 'top' the window is resized from that edge.
@@ -96,6 +124,7 @@ function createWindow(sendToRenderer, geminiSessionRef) {
     }
 
     mainWindow.loadFile(path.join(__dirname, '../index.html'));
+    mainWindow.webContents.once('did-finish-load', () => warnIfOldWindows(mainWindow));
 
     // After window is created, initialize keybinds
     mainWindow.webContents.once('dom-ready', () => {
@@ -456,6 +485,7 @@ module.exports = {
     createWindow,
     computeDraggedBounds,
     getDefaultKeybinds,
+    isWindowsTooOldToHideFromCapture,
     updateGlobalShortcuts,
     setupWindowIpcHandlers,
 };

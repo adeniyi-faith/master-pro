@@ -42,6 +42,7 @@ const DEFAULT_PREFERENCES = {
     advancedMode: false,
     audioMode: 'speaker_only',
     endOfSpeech: 'fast',
+    questionPatience: 'normal',
     fontSize: 'medium',
     backgroundTransparency: 0.8,
     googleSearchEnabled: false,

@@ -66,8 +66,32 @@ const GROQ_EMPTY_RESPONSE_MESSAGE =
 let isUserClosing = false;
 let sessionParams = null;
 let reconnectAttempts = 0;
-const MAX_RECONNECT_ATTEMPTS = 3;
-const RECONNECT_DELAY = 2000;
+// Keep trying to get the connection back for this long before giving up (the user can then tap Reconnect)
+let RECONNECT_GIVE_UP_MS = 120000;
+let RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 8000, 15000];
+
+// Live connection health. Google closes each live connection after about 10 minutes by design, and it sends a
+// "go away" warning first, so we hand over to a fresh connection early (using the resume handle) instead of waiting for a drop.
+let liveGeneration = 0; // the newest connection that is in use; older ones are being replaced and are ignored
+let generationCounter = 0;
+let liveConnected = false;
+let liveReconnecting = false;
+let resumeHandle = null;
+let liveWatchdogTimer = null;
+let lastWatchdogReconnectAt = 0;
+let loudMsWithoutTranscript = 0;
+
+// Audio heard while there is no connection is kept (newest 20 seconds) and replayed once the connection is back
+const AUDIO_REPLAY_MAX_MS = 20000;
+let AUDIO_REPLAY_GAP_MS = 30;
+let pendingAudio = [];
+let pendingAudioMs = 0;
+let drainingPendingAudio = false;
+let WATCHDOG_INTERVAL_MS = 5000;
+const WATCHDOG_BUFFERED_BYTES = 400000; // audio piling up unsent means the connection has silently stalled
+let WATCHDOG_LOUD_MS_NO_WORDS = 20000; // loud call audio but no words came back
+let WATCHDOG_MIN_GAP_MS = 90000;
+const LOUD_RMS = 500;
 
 // Removes the stray "- ***"...***" wrapping some models put around a short answer
 function tidyAnswer(text) {
@@ -429,11 +453,16 @@ const QUESTION_OPEN_END_SILENCE_MS = 5500;
 const QUESTION_CLEAR_END_SILENCE_MS = 2000;
 const OPEN_ENDING_WORDS = /\b(and|or|but|so|because|that|which|who|when|where|if|the|a|an|to|of|with|for|in|on|about|how|what|why|like|then|also|is|are|was|were|my|your|our|their|it|you|i|we|can|could|would|should|do|does|did|have|has|had)$/i;
 
+// "Patience" setting: how much longer (or shorter) than normal to wait for the question to finish
+const PATIENCE_MULTIPLIERS = { quick: 0.6, normal: 1, patient: 1.5, 'very-patient': 2 };
+
 function getQuestionEndWaitMs(text) {
     const trimmed = (text || '').trim();
-    if (/\?$/.test(trimmed)) return QUESTION_CLEAR_END_SILENCE_MS;
-    if (OPEN_ENDING_WORDS.test(trimmed.replace(/[.,;:!"')\s]+$/, ''))) return QUESTION_OPEN_END_SILENCE_MS;
-    return QUESTION_END_SILENCE_MS;
+    let ms = QUESTION_END_SILENCE_MS;
+    if (/\?$/.test(trimmed)) ms = QUESTION_CLEAR_END_SILENCE_MS;
+    else if (OPEN_ENDING_WORDS.test(trimmed.replace(/[.,;:!"')\s]+$/, ''))) ms = QUESTION_OPEN_END_SILENCE_MS;
+    const multiplier = PATIENCE_MULTIPLIERS[getPreferences().questionPatience] || 1;
+    return Math.round(Math.min(12000, Math.max(1000, ms * multiplier)));
 }
 
 let questionEndTimer = null;
@@ -877,6 +906,10 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
     if (!isReconnect) {
         sessionParams = { apiKey, customPrompt, profile, language };
         reconnectAttempts = 0;
+        resumeHandle = null;
+        pendingAudio = [];
+        pendingAudioMs = 0;
+        loudMsWithoutTranscript = 0;
     }
 
     const client = new GoogleGenAI({
@@ -897,6 +930,8 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
         initializeNewSession(profile, customPrompt);
     }
 
+    const generation = ++generationCounter;
+
     try {
         const session = await client.live.connect({
             model: getConfig().geminiLiveModel,
@@ -906,7 +941,18 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                     sendToRenderer('update-status', 'Live session connected');
                 },
                 onmessage: function (message) {
+                    if (generation < liveGeneration) return; // a replaced connection
                     console.log('----------------', message);
+
+                    // Google's resume code: lets the next connection carry on this same session
+                    if (message.sessionResumptionUpdate?.resumable && message.sessionResumptionUpdate.newHandle) {
+                        resumeHandle = message.sessionResumptionUpdate.newHandle;
+                    }
+                    // Google's warning that this connection is about to be closed: swap to a fresh one now
+                    if (message.goAway) {
+                        logTransportEvent('gemini.live.go-away', message.goAway);
+                        handoverToFreshConnection('go-away');
+                    }
                     if (message.usageMetadata) liveTurnUsage = message.usageMetadata;
                     logTransportEvent('gemini.live.message', message);
 
@@ -921,6 +967,7 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                     }
 
                     if (message.serverContent?.inputTranscription) {
+                        loudMsWithoutTranscript = 0;
                         restartQuestionEndTimer();
                     }
 
@@ -979,7 +1026,9 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                     sendToRenderer('update-status', 'Error: ' + e.message);
                 },
                 onclose: function (e) {
+                    if (generation < liveGeneration) return; // a replaced connection closing is expected
                     console.log('Session closed:', e.reason);
+                    liveConnected = false;
                     flushLiveUsage();
                     logTransportEvent('gemini.live.closed', {
                         reason: e.reason,
@@ -994,7 +1043,7 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                     }
 
                     // Attempt reconnection
-                    if (sessionParams && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                    if (sessionParams) {
                         attemptReconnect();
                     } else {
                         closeTransportLog();
@@ -1015,6 +1064,8 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
                     maxSpeakerCount: 2,
                 },
                 contextWindowCompression: { slidingWindow: {} },
+                // Lets a new connection carry on the same session (Google's own advice for long calls)
+                sessionResumption: resumeHandle ? { handle: resumeHandle } : {},
                 speechConfig: { languageCode: language },
                 systemInstruction: {
                     parts: [{ text: systemPrompt }],
@@ -1026,9 +1077,14 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
         if (!isReconnect) {
             sendToRenderer('session-initializing', false);
         }
+        liveGeneration = generation;
+        liveConnected = true;
+        startLiveWatchdog();
         return session;
     } catch (error) {
         console.error('Failed to initialize Gemini session:', error);
+        // A stale resume code can be the reason the connection is refused: forget it for the next try
+        if (resumeHandle) resumeHandle = null;
         isInitializingSession = false;
         if (!isReconnect) {
             sendToRenderer('session-initializing', false);
@@ -1037,66 +1093,253 @@ async function initializeGeminiSession(apiKey, customPrompt = '', profile = 'int
     }
 }
 
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+function backoffDelay(attempt) {
+    const base = RECONNECT_BACKOFF_MS[Math.min(attempt - 1, RECONNECT_BACKOFF_MS.length - 1)];
+    // A little randomness so many users do not all retry at the same moment
+    return Math.round(base * (0.75 + Math.random() * 0.5));
+}
+
+// Opens a new live connection, makes it the active one, and replays the audio heard while we had none.
+async function openReplacementConnection() {
+    const usedResumeHandle = !!resumeHandle;
+    const session = await initializeGeminiSession(
+        sessionParams.apiKey,
+        sessionParams.customPrompt,
+        sessionParams.profile,
+        sessionParams.language,
+        true // isReconnect
+    );
+    if (!session || !global.geminiSessionRef) return false;
+
+    const oldSession = global.geminiSessionRef.current;
+    global.geminiSessionRef.current = session;
+    if (oldSession && oldSession !== session) {
+        try {
+            oldSession.close();
+        } catch (e) {
+            // already closed
+        }
+    }
+
+    // With a resume code Google already holds the conversation, so only paste it back when we started fresh
+    if (!usedResumeHandle) {
+        const contextMessage = buildContextMessage();
+        if (contextMessage) {
+            try {
+                console.log('Restoring conversation context...');
+                await session.sendRealtimeInput({ text: contextMessage });
+            } catch (contextError) {
+                console.error('Failed to restore context:', contextError);
+                // Continue without context - better than failing
+            }
+        }
+    }
+
+    reconnectAttempts = 0;
+    drainPendingAudio(); // not awaited: live audio keeps flowing in order behind it
+    return true;
+}
+
+// Connection dropped: keep trying (with growing waits) for up to two minutes, keeping what was heard meanwhile.
 async function attemptReconnect() {
-    reconnectAttempts++;
-    console.log(`Reconnection attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}`);
+    if (liveReconnecting) return false;
+    liveReconnecting = true;
+    liveConnected = false;
+    const startedAt = Date.now();
+    let attempt = 0;
 
-    // Clear stale buffers
+    // The question being asked is kept: the transcript is not cleared, only the unfinished reply
     messageBuffer = '';
-    currentTranscription = '';
-    // Don't reset groqConversationHistory to preserve context across reconnects
-
-    sendToRenderer('update-status', `Reconnecting... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
-
-    // Wait before attempting
-    await new Promise(resolve => setTimeout(resolve, RECONNECT_DELAY));
 
     try {
-        const session = await initializeGeminiSession(
-            sessionParams.apiKey,
-            sessionParams.customPrompt,
-            sessionParams.profile,
-            sessionParams.language,
-            true // isReconnect
-        );
+        while (sessionParams && Date.now() - startedAt < RECONNECT_GIVE_UP_MS) {
+            attempt++;
+            reconnectAttempts = attempt;
+            sendToRenderer('update-status', `Connection lost. Reconnecting (try ${attempt})... what you hear is being kept.`);
+            await sleep(backoffDelay(attempt));
+            if (!sessionParams) return false; // the user ended the session while we waited
 
-        if (session && global.geminiSessionRef) {
-            global.geminiSessionRef.current = session;
-
-            // Restore context from conversation history via text message
-            const contextMessage = buildContextMessage();
-            if (contextMessage) {
-                try {
-                    console.log('Restoring conversation context...');
-                    await session.sendRealtimeInput({ text: contextMessage });
-                } catch (contextError) {
-                    console.error('Failed to restore context:', contextError);
-                    // Continue without context - better than failing
+            try {
+                if (await openReplacementConnection()) {
+                    sendToRenderer('update-status', 'Back online. Listening...');
+                    console.log(`Session reconnected successfully after ${attempt} ${attempt === 1 ? 'try' : 'tries'}`);
+                    return true;
                 }
+            } catch (error) {
+                console.error(`Reconnection attempt ${attempt} failed:`, error);
             }
+        }
+    } finally {
+        liveReconnecting = false;
+    }
 
-            // Reconnected fine, so a later drop gets a fresh set of attempts
-            reconnectAttempts = 0;
-            sendToRenderer('update-status', 'Reconnected! Listening...');
-            console.log('Session reconnected successfully');
+    if (sessionParams) {
+        console.error('Gave up reconnecting after 2 minutes');
+        sendToRenderer('reconnect-failed', {
+            message: "Couldn't get the connection back after 2 minutes. Check your internet, then tap Reconnect. Nothing you said was lost from the saved notes.",
+            canRetry: true,
+        });
+    }
+    return false;
+}
+
+// Moves to a fresh connection before the old one dies (Google's go-away warning, or the watchdog noticing a stall).
+// Audio keeps flowing to the old connection until the new one is ready, so nothing is missed.
+async function handoverToFreshConnection(reason) {
+    if (liveReconnecting || !sessionParams) return false;
+    liveReconnecting = true;
+    try {
+        console.log(`Handing over to a fresh live connection (${reason})`);
+        if (await openReplacementConnection()) {
+            if (reason !== 'go-away') sendToRenderer('update-status', 'Connection refreshed. Listening...');
             return true;
         }
     } catch (error) {
-        console.error(`Reconnection attempt ${reconnectAttempts} failed:`, error);
+        console.error(`Handover (${reason}) failed:`, error);
+    } finally {
+        liveReconnecting = false;
+    }
+    // The fresh connection could not be made: fall back to the normal reconnect loop
+    liveConnected = false;
+    return attemptReconnect();
+}
+
+// Called from the Reconnect button after the app gave up
+async function reconnectNow() {
+    if (!sessionParams) return false;
+    return attemptReconnect();
+}
+
+// ---- Audio that cannot be sent yet is kept and replayed ----
+function audioChunkMs(data, mimeType) {
+    const rate = Number((/rate=(\d+)/.exec(mimeType || '') || [])[1]) || 24000;
+    const bytes = (data.length * 3) / 4;
+    return (bytes / 2 / rate) * 1000;
+}
+
+function audioLooksLoud(data) {
+    try {
+        const buf = Buffer.from(data, 'base64');
+        let sum = 0;
+        let n = 0;
+        for (let i = 0; i + 1 < buf.length; i += 20) {
+            const v = buf.readInt16LE(i);
+            sum += v * v;
+            n++;
+        }
+        return n > 0 && Math.sqrt(sum / n) > LOUD_RMS;
+    } catch (e) {
+        return false;
+    }
+}
+
+function queueAudio(data, mimeType) {
+    const ms = audioChunkMs(data, mimeType);
+    pendingAudio.push({ data, mimeType, ms });
+    pendingAudioMs += ms;
+    while (pendingAudioMs > AUDIO_REPLAY_MAX_MS && pendingAudio.length > 1) {
+        pendingAudioMs -= pendingAudio.shift().ms;
+    }
+}
+
+async function drainPendingAudio() {
+    if (drainingPendingAudio) return;
+    drainingPendingAudio = true;
+    try {
+        while (pendingAudio.length > 0 && liveConnected) {
+            const chunk = pendingAudio.shift();
+            pendingAudioMs -= chunk.ms;
+            const session = global.geminiSessionRef?.current;
+            if (!session) {
+                pendingAudio.unshift(chunk);
+                pendingAudioMs += chunk.ms;
+                break;
+            }
+            try {
+                await session.sendRealtimeInput({ audio: { data: chunk.data, mimeType: chunk.mimeType } });
+            } catch (error) {
+                pendingAudio.unshift(chunk);
+                pendingAudioMs += chunk.ms;
+                break;
+            }
+            await sleep(AUDIO_REPLAY_GAP_MS); // a little faster than real time, not a flood
+        }
+    } finally {
+        drainingPendingAudio = false;
+    }
+}
+
+// The one place live call audio is sent from. Returns { success }.
+async function pushLiveAudio(geminiSessionRef, data, mimeType, marker = '.') {
+    if (!sessionParams) {
+        // No call in progress
+        if (!geminiSessionRef.current) return { success: false, error: 'No active Gemini session' };
+    }
+    if (audioLooksLoud(data)) loudMsWithoutTranscript += audioChunkMs(data, mimeType);
+
+    // Not connected right now, or older audio is still being replayed: keep it, in order
+    if (!liveConnected || !geminiSessionRef.current || drainingPendingAudio) {
+        if (sessionParams) {
+            queueAudio(data, mimeType);
+            return { success: true, queued: true };
+        }
+        return { success: false, error: 'No active Gemini session' };
     }
 
-    // If we still have attempts left, try again
-    if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-        return attemptReconnect();
+    try {
+        process.stdout.write(marker);
+        await geminiSessionRef.current.sendRealtimeInput({ audio: { data, mimeType } });
+        return { success: true };
+    } catch (error) {
+        console.error('Error sending audio to Gemini:', error);
+        if (sessionParams) {
+            // The connection is probably gone. Keep this audio; the close event starts the reconnect,
+            // and if that never comes the watchdog catches it.
+            liveConnected = false;
+            queueAudio(data, mimeType);
+            if (!liveReconnecting) attemptReconnect();
+            return { success: true, queued: true };
+        }
+        return { success: false, error: error.message };
     }
+}
 
-    // Max attempts reached - notify frontend
-    console.log('Max reconnection attempts reached');
-    sendToRenderer('reconnect-failed', {
-        message: `Tried ${MAX_RECONNECT_ATTEMPTS} times to reconnect. Must be upstream/network issues. Try restarting or download updated app from site.`,
-    });
-    sessionParams = null;
-    return false;
+// ---- Watchdog: notices a connection that has frozen without any error ----
+function startLiveWatchdog() {
+    if (liveWatchdogTimer) return;
+    liveWatchdogTimer = setInterval(() => {
+        if (!sessionParams || !liveConnected || liveReconnecting) return;
+        if (Date.now() - lastWatchdogReconnectAt < WATCHDOG_MIN_GAP_MS) return;
+
+        let reason = '';
+        try {
+            // Audio piling up inside the socket means it is not getting through
+            const buffered = global.geminiSessionRef?.current?.conn?.ws?.bufferedAmount || 0;
+            if (buffered > WATCHDOG_BUFFERED_BYTES) reason = 'audio is stuck';
+        } catch (e) {
+            // internal detail of the Google library; ignore if it is not there
+        }
+        // Loud call audio for a good while but not one word came back
+        if (!reason && loudMsWithoutTranscript > WATCHDOG_LOUD_MS_NO_WORDS) reason = 'no words came back';
+
+        if (reason) {
+            console.warn(`Watchdog: ${reason}, refreshing the connection`);
+            lastWatchdogReconnectAt = Date.now();
+            loudMsWithoutTranscript = 0;
+            sendToRenderer('update-status', 'Connection looks stuck. Refreshing...');
+            handoverToFreshConnection('watchdog');
+        }
+    }, WATCHDOG_INTERVAL_MS);
+}
+
+function stopLiveWatchdog() {
+    if (liveWatchdogTimer) clearInterval(liveWatchdogTimer);
+    liveWatchdogTimer = null;
+    liveConnected = false;
+    pendingAudio = [];
+    pendingAudioMs = 0;
 }
 
 function killExistingSystemAudioDump() {
@@ -1242,19 +1485,7 @@ function stopMacOSAudioCapture() {
 }
 
 async function sendAudioToGemini(base64Data, geminiSessionRef) {
-    if (!geminiSessionRef.current) return;
-
-    try {
-        process.stdout.write('.');
-        await geminiSessionRef.current.sendRealtimeInput({
-            audio: {
-                data: base64Data,
-                mimeType: 'audio/pcm;rate=24000',
-            },
-        });
-    } catch (error) {
-        console.error('Error sending audio to Gemini:', error);
-    }
+    await pushLiveAudio(geminiSessionRef, base64Data, 'audio/pcm;rate=24000', '.');
 }
 
 // Writes post-session notes (what was asked, how it went, what to study) from the saved conversation
@@ -1432,17 +1663,7 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
                 return { success: false, error: error.message };
             }
         }
-        if (!geminiSessionRef.current) return { success: false, error: 'No active Gemini session' };
-        try {
-            process.stdout.write('.');
-            await geminiSessionRef.current.sendRealtimeInput({
-                audio: { data: data, mimeType: mimeType },
-            });
-            return { success: true };
-        } catch (error) {
-            console.error('Error sending system audio:', error);
-            return { success: false, error: error.message };
-        }
+        return pushLiveAudio(geminiSessionRef, data, mimeType, '.');
     });
 
     // Handle microphone audio on a separate channel
@@ -1467,17 +1688,7 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
                 return { success: false, error: error.message };
             }
         }
-        if (!geminiSessionRef.current) return { success: false, error: 'No active Gemini session' };
-        try {
-            process.stdout.write(',');
-            await geminiSessionRef.current.sendRealtimeInput({
-                audio: { data: data, mimeType: mimeType },
-            });
-            return { success: true };
-        } catch (error) {
-            console.error('Error sending mic audio:', error);
-            return { success: false, error: error.message };
-        }
+        return pushLiveAudio(geminiSessionRef, data, mimeType, ',');
     });
 
     ipcMain.handle('send-image-content', async (event, { data, prompt }) => {
@@ -1614,6 +1825,7 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
             // Set flag to prevent reconnection attempts
             isUserClosing = true;
             sessionParams = null;
+            stopLiveWatchdog();
 
             // Cleanup session
             if (geminiSessionRef.current) {
@@ -1629,6 +1841,8 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
             return { success: false, error: error.message };
         }
     });
+
+    ipcMain.handle('reconnect-live', async () => ({ success: await reconnectNow() }));
 
     ipcMain.handle('rework-answer', async (event, request) => {
         reworkAnswer(request || {});
@@ -1672,7 +1886,18 @@ function setupGeminiIpcHandlers(geminiSessionRef) {
     });
 }
 
+// Lets the tests shorten the waits
+function _setLiveTimingForTests(t) {
+    if (t.giveUpMs !== undefined) RECONNECT_GIVE_UP_MS = t.giveUpMs;
+    if (t.backoffMs) RECONNECT_BACKOFF_MS = t.backoffMs;
+    if (t.replayGapMs !== undefined) AUDIO_REPLAY_GAP_MS = t.replayGapMs;
+    if (t.watchdogIntervalMs !== undefined) WATCHDOG_INTERVAL_MS = t.watchdogIntervalMs;
+    if (t.watchdogLoudMs !== undefined) WATCHDOG_LOUD_MS_NO_WORDS = t.watchdogLoudMs;
+    if (t.watchdogMinGapMs !== undefined) WATCHDOG_MIN_GAP_MS = t.watchdogMinGapMs;
+}
+
 module.exports = {
+    _setLiveTimingForTests,
     initializeGeminiSession,
     getEnabledTools,
     getStoredSetting,

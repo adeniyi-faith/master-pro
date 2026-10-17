@@ -186,6 +186,7 @@ export class CustomizeView extends LitElement {
         backgroundTransparency: { type: Number },
         fontSize: { type: Number },
         endOfSpeech: { type: String },
+        questionPatience: { type: String },
         theme: { type: String },
         onProfileChange: { type: Function },
         onLanguageChange: { type: Function },
@@ -218,6 +219,7 @@ export class CustomizeView extends LitElement {
         this.fontSize = 20;
         this.audioMode = 'speaker_only';
         this.endOfSpeech = 'fast';
+        this.questionPatience = 'normal';
         this.customPrompt = '';
         this.theme = 'dark';
         this._loadFromStorage();
@@ -236,6 +238,7 @@ export class CustomizeView extends LitElement {
             this.fontSize = prefs.fontSize ?? 20;
             this.audioMode = prefs.audioMode ?? 'speaker_only';
             this.endOfSpeech = prefs.endOfSpeech ?? 'fast';
+            this.questionPatience = prefs.questionPatience ?? 'normal';
             this.customPrompt = prefs.customPrompt ?? '';
             this.theme = prefs.theme ?? 'dark';
             if (keybinds) {
@@ -364,6 +367,12 @@ export class CustomizeView extends LitElement {
     async handleAudioModeSelect(e) {
         this.audioMode = e.target.value;
         await softMaster.storage.updatePreference('audioMode', this.audioMode);
+        this.requestUpdate();
+    }
+
+    async handleQuestionPatienceSelect(e) {
+        this.questionPatience = e.target.value;
+        await softMaster.storage.updatePreference('questionPatience', this.questionPatience);
         this.requestUpdate();
     }
 
@@ -499,6 +508,7 @@ export class CustomizeView extends LitElement {
                 selectedImageQuality: 'medium',
                 audioMode: 'speaker_only',
                 endOfSpeech: 'fast',
+                questionPatience: 'normal',
                 fontSize: 20,
                 backgroundTransparency: 0.8,
                 googleSearchEnabled: false,
@@ -522,6 +532,7 @@ export class CustomizeView extends LitElement {
             this.selectedImageQuality = defaults.selectedImageQuality;
             this.audioMode = defaults.audioMode;
             this.endOfSpeech = defaults.endOfSpeech;
+            this.questionPatience = defaults.questionPatience;
             this.fontSize = defaults.fontSize;
             this.backgroundTransparency = defaults.backgroundTransparency;
             this.googleSearchEnabled = defaults.googleSearchEnabled;
@@ -607,6 +618,16 @@ export class CustomizeView extends LitElement {
                         </select>
                     </div>
                     <div class="form-help">How long the app waits in silence before deciding a question is finished. Balanced waits longest for pauses. Fastest answers soonest but may cut off slow speakers. Takes effect the next time you start a session.</div>
+                    <div class="form-group">
+                        <label class="form-label">Patience with long questions</label>
+                        <select class="control" .value=${this.questionPatience} @change=${this.handleQuestionPatienceSelect}>
+                            <option value="quick">Quick (answers sooner)</option>
+                            <option value="normal">Normal (default)</option>
+                            <option value="patient">Patient (waits longer)</option>
+                            <option value="very-patient">Very patient (waits longest)</option>
+                        </select>
+                    </div>
+                    <div class="form-help">After the speaker stops, how long the app waits before answering. Choose Patient if interviewers pause while they think or ask long questions. Takes effect straight away, even mid-session.</div>
                     <div class="form-group">
                         <label class="form-label">Image Quality</label>
                         <select class="control" .value=${this.selectedImageQuality} @change=${this.handleImageQualitySelect}>
